@@ -50,9 +50,9 @@ Be concise, specific, and actionable. Use the data above to answer questions acc
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "AI chat not configured (missing OPENAI_API_KEY)" }, { status: 503 });
+    return NextResponse.json({ error: "AI chat not configured (missing ANTHROPIC_API_KEY)" }, { status: 503 });
   }
 
   let body: { message: string; reportData: ReportData };
@@ -68,17 +68,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
+        system: buildContext(reportData),
         messages: [
-          { role: "system", content: buildContext(reportData) },
           { role: "user", content: message },
         ],
       }),
@@ -86,15 +87,15 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("OpenAI API error:", res.status, errText);
+      console.error("Anthropic API error:", res.status, errText);
       return NextResponse.json(
-        { error: `OpenAI error ${res.status}: ${errText}` },
+        { error: `Anthropic error ${res.status}: ${errText}` },
         { status: 502 }
       );
     }
 
     const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? "No response";
+    const content = data.content?.[0]?.text ?? "No response";
     return NextResponse.json({ content });
   } catch (err) {
     console.error("AI chat error:", err);
