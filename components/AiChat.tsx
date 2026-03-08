@@ -20,72 +20,175 @@ interface Props {
   data: ReportData;
 }
 
-// Renders assistant markdown-ish text: bold, bullets, line breaks
+// Renders assistant markdown: headings, tables, bullets, bold, code
 function AssistantMessage({ content }: { content: string }) {
   const lines = content.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
 
-  return (
-    <div style={{ fontSize: "13px", lineHeight: 1.65, color: C.text }}>
-      {lines.map((line, i) => {
-        const trimmed = line.trim();
+  while (i < lines.length) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
 
-        // Blank line → spacer
-        if (trimmed === "") return <div key={i} style={{ height: "6px" }} />;
+    // Blank line
+    if (trimmed === "") {
+      elements.push(<div key={i} style={{ height: "6px" }} />);
+      i++;
+      continue;
+    }
 
-        // Bullet line: starts with - or •
-        const bulletMatch = trimmed.match(/^[-•]\s+(.+)/);
-        if (bulletMatch) {
-          return (
-            <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "3px" }}>
-              <span style={{ color: C.accent, flexShrink: 0, marginTop: "1px" }}>▸</span>
-              <span>{renderInline(bulletMatch[1])}</span>
-            </div>
-          );
-        }
+    // H1: # heading
+    if (trimmed.startsWith("# ")) {
+      elements.push(
+        <div key={i} style={{ fontWeight: 800, fontSize: "15px", color: C.text, marginTop: i > 0 ? "12px" : 0, marginBottom: "6px" }}>
+          {renderInline(trimmed.slice(2))}
+        </div>
+      );
+      i++;
+      continue;
+    }
 
-        // Numbered line: starts with 1. 2. etc
-        const numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
-        if (numMatch) {
-          return (
-            <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "3px" }}>
-              <span style={{ color: C.accent, flexShrink: 0, fontWeight: 700, minWidth: "16px" }}>
-                {numMatch[1]}.
-              </span>
-              <span>{renderInline(numMatch[2])}</span>
-            </div>
-          );
-        }
+    // H2: ## heading
+    if (trimmed.startsWith("## ")) {
+      elements.push(
+        <div key={i} style={{ fontWeight: 700, fontSize: "13px", color: C.accent, marginTop: "12px", marginBottom: "5px", letterSpacing: "0.03em" }}>
+          {renderInline(trimmed.slice(3))}
+        </div>
+      );
+      i++;
+      continue;
+    }
 
-        // Heading-ish line: ends with : and has no lowercase before it (ALL CAPS or Title)
-        if (trimmed.endsWith(":") && trimmed.length < 60) {
-          return (
-            <div
-              key={i}
-              style={{
-                fontWeight: 700,
-                color: C.text,
-                marginTop: i > 0 ? "10px" : 0,
-                marginBottom: "4px",
-                fontSize: "12px",
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                color: C.textDim,
-              }}
-            >
-              {trimmed.slice(0, -1)}
-            </div>
-          );
-        }
+    // H3: ### heading
+    if (trimmed.startsWith("### ")) {
+      elements.push(
+        <div key={i} style={{ fontWeight: 700, fontSize: "12px", color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: "10px", marginBottom: "4px" }}>
+          {trimmed.slice(4)}
+        </div>
+      );
+      i++;
+      continue;
+    }
 
-        // Normal paragraph line
-        return (
-          <div key={i} style={{ marginBottom: "3px" }}>
-            {renderInline(trimmed)}
+    // Markdown table: line contains |
+    if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
+      // Filter out separator rows (---|---)
+      const dataRows = tableLines.filter((l) => !/^\|[\s|:-]+\|$/.test(l));
+      if (dataRows.length > 0) {
+        const parseRow = (l: string) =>
+          l.slice(1, -1).split("|").map((c) => c.trim());
+        const [headerRow, ...bodyRows] = dataRows;
+        const headers = parseRow(headerRow);
+        elements.push(
+          <div key={`table-${i}`} style={{ overflowX: "auto", margin: "8px 0" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+              <thead>
+                <tr>
+                  {headers.map((h, hi) => (
+                    <th
+                      key={hi}
+                      style={{
+                        padding: "6px 10px",
+                        background: `${C.accent}18`,
+                        borderBottom: `1px solid ${C.border}`,
+                        color: C.textDim,
+                        fontWeight: 700,
+                        textAlign: hi === 0 ? "left" : "right",
+                        whiteSpace: "nowrap",
+                        fontSize: "11px",
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, ri) => {
+                  const cells = parseRow(row);
+                  return (
+                    <tr key={ri} style={{ background: ri % 2 === 0 ? "transparent" : `${C.bg}88` }}>
+                      {cells.map((cell, ci) => (
+                        <td
+                          key={ci}
+                          style={{
+                            padding: "6px 10px",
+                            borderBottom: `1px solid ${C.border}44`,
+                            color: C.text,
+                            textAlign: ci === 0 ? "left" : "right",
+                            fontFamily: ci > 0 ? "'JetBrains Mono', monospace" : undefined,
+                          }}
+                        >
+                          {renderInline(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         );
-      })}
-    </div>
-  );
+      }
+      continue;
+    }
+
+    // Bullet line: - or •
+    const bulletMatch = trimmed.match(/^[-•]\s+(.+)/);
+    if (bulletMatch) {
+      elements.push(
+        <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "3px" }}>
+          <span style={{ color: C.accent, flexShrink: 0, marginTop: "2px" }}>▸</span>
+          <span>{renderInline(bulletMatch[1])}</span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Numbered line
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
+    if (numMatch) {
+      elements.push(
+        <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "3px" }}>
+          <span style={{ color: C.accent, flexShrink: 0, fontWeight: 700, minWidth: "16px" }}>
+            {numMatch[1]}.
+          </span>
+          <span>{renderInline(numMatch[2])}</span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Section label: ends with : and short
+    if (trimmed.endsWith(":") && trimmed.length < 60 && !trimmed.includes(" ") === false) {
+      elements.push(
+        <div key={i} style={{ fontWeight: 700, fontSize: "11px", color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: "10px", marginBottom: "4px" }}>
+          {renderInline(trimmed.slice(0, -1))}
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Normal line
+    elements.push(
+      <div key={i} style={{ marginBottom: "3px", fontSize: "13px", lineHeight: 1.65 }}>
+        {renderInline(trimmed)}
+      </div>
+    );
+    i++;
+  }
+
+  return <div>{elements}</div>;
 }
 
 // Renders **bold** and `code` inline
