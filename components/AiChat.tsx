@@ -20,6 +20,103 @@ interface Props {
   data: ReportData;
 }
 
+// Renders assistant markdown-ish text: bold, bullets, line breaks
+function AssistantMessage({ content }: { content: string }) {
+  const lines = content.split("\n");
+
+  return (
+    <div style={{ fontSize: "13px", lineHeight: 1.65, color: C.text }}>
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+
+        // Blank line → spacer
+        if (trimmed === "") return <div key={i} style={{ height: "6px" }} />;
+
+        // Bullet line: starts with - or •
+        const bulletMatch = trimmed.match(/^[-•]\s+(.+)/);
+        if (bulletMatch) {
+          return (
+            <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "3px" }}>
+              <span style={{ color: C.accent, flexShrink: 0, marginTop: "1px" }}>▸</span>
+              <span>{renderInline(bulletMatch[1])}</span>
+            </div>
+          );
+        }
+
+        // Numbered line: starts with 1. 2. etc
+        const numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
+        if (numMatch) {
+          return (
+            <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "3px" }}>
+              <span style={{ color: C.accent, flexShrink: 0, fontWeight: 700, minWidth: "16px" }}>
+                {numMatch[1]}.
+              </span>
+              <span>{renderInline(numMatch[2])}</span>
+            </div>
+          );
+        }
+
+        // Heading-ish line: ends with : and has no lowercase before it (ALL CAPS or Title)
+        if (trimmed.endsWith(":") && trimmed.length < 60) {
+          return (
+            <div
+              key={i}
+              style={{
+                fontWeight: 700,
+                color: C.text,
+                marginTop: i > 0 ? "10px" : 0,
+                marginBottom: "4px",
+                fontSize: "12px",
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: C.textDim,
+              }}
+            >
+              {trimmed.slice(0, -1)}
+            </div>
+          );
+        }
+
+        // Normal paragraph line
+        return (
+          <div key={i} style={{ marginBottom: "3px" }}>
+            {renderInline(trimmed)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Renders **bold** and `code` inline
+function renderInline(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i} style={{ color: C.text, fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={i}
+          style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: "11px",
+            background: C.bg,
+            border: `1px solid ${C.border}`,
+            borderRadius: "4px",
+            padding: "1px 5px",
+            color: C.accent,
+          }}
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
 export function AiChat({ data }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -97,8 +194,8 @@ export function AiChat({ data }: Props) {
             position: "fixed",
             bottom: "28px",
             right: "28px",
-            width: "380px",
-            height: "520px",
+            width: "480px",
+            height: "640px",
             background: C.card,
             border: `1px solid ${C.border}`,
             borderRadius: "14px",
@@ -132,24 +229,42 @@ export function AiChat({ data }: Props) {
                 }}
               />
               <span style={{ fontWeight: 600, fontSize: "14px", color: C.text }}>AI Analyst</span>
-              <span style={{ fontSize: "11px", color: C.textDim }}>claude-sonnet-4</span>
+              <span style={{ fontSize: "11px", color: C.textDim }}>claude haiku</span>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: "18px", lineHeight: 1 }}
-            >
-              ×
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {messages.length > 0 && (
+                <button
+                  onClick={() => setMessages([])}
+                  style={{
+                    background: "none",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    color: C.textDim,
+                    fontSize: "11px",
+                    padding: "3px 8px",
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={() => setIsOpen(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: "20px", lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 6px" }}>
             {messages.length === 0 && (
               <div>
-                <p style={{ fontSize: "13px", color: C.textDim, marginBottom: "12px", textAlign: "center" }}>
+                <p style={{ fontSize: "13px", color: C.textDim, marginBottom: "14px", textAlign: "center" }}>
                   Ask me anything about your store data
                 </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
                   {SUGGESTIONS.map((s) => (
                     <button
                       key={s}
@@ -158,9 +273,9 @@ export function AiChat({ data }: Props) {
                         background: C.bg,
                         border: `1px solid ${C.border}`,
                         borderRadius: "8px",
-                        padding: "8px 12px",
+                        padding: "10px 14px",
                         cursor: "pointer",
-                        fontSize: "12px",
+                        fontSize: "13px",
                         color: C.textDim,
                         textAlign: "left",
                         transition: "border-color 0.15s",
@@ -178,33 +293,73 @@ export function AiChat({ data }: Props) {
                 </div>
               </div>
             )}
+
             {messages.map((m, i) => (
               <div
                 key={i}
                 style={{
                   display: "flex",
                   justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-                  marginBottom: "10px",
+                  marginBottom: "12px",
                 }}
               >
+                {m.role === "assistant" && (
+                  <div
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: "50%",
+                      background: `${C.accent}22`,
+                      border: `1px solid ${C.accent}44`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "11px",
+                      flexShrink: 0,
+                      marginRight: "8px",
+                      marginTop: "2px",
+                    }}
+                  >
+                    ✦
+                  </div>
+                )}
                 <div
                   style={{
-                    maxWidth: "80%",
-                    padding: "10px 13px",
+                    maxWidth: "85%",
+                    padding: "10px 14px",
                     borderRadius: "10px",
-                    fontSize: "13px",
-                    lineHeight: 1.5,
                     background: m.role === "user" ? C.accent : C.bg,
                     color: m.role === "user" ? "#fff" : C.text,
                     border: m.role === "assistant" ? `1px solid ${C.border}` : undefined,
                   }}
                 >
-                  {m.content}
+                  {m.role === "assistant" ? (
+                    <AssistantMessage content={m.content} />
+                  ) : (
+                    <span style={{ fontSize: "13px", lineHeight: 1.5 }}>{m.content}</span>
+                  )}
                 </div>
               </div>
             ))}
+
             {loading && (
-              <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "50%",
+                    background: `${C.accent}22`,
+                    border: `1px solid ${C.accent}44`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "11px",
+                    flexShrink: 0,
+                  }}
+                >
+                  ✦
+                </div>
                 <div
                   style={{
                     padding: "10px 16px",
@@ -225,7 +380,7 @@ export function AiChat({ data }: Props) {
           {/* Input */}
           <div
             style={{
-              padding: "10px 12px",
+              padding: "12px",
               borderTop: `1px solid ${C.border}`,
               display: "flex",
               gap: "8px",
@@ -241,7 +396,7 @@ export function AiChat({ data }: Props) {
                 background: C.bg,
                 border: `1px solid ${C.border}`,
                 borderRadius: "8px",
-                padding: "8px 12px",
+                padding: "10px 14px",
                 fontSize: "13px",
                 color: C.text,
                 outline: "none",
@@ -254,12 +409,12 @@ export function AiChat({ data }: Props) {
                 background: C.accent,
                 border: "none",
                 borderRadius: "8px",
-                padding: "8px 14px",
+                padding: "10px 16px",
                 cursor: "pointer",
                 color: "#fff",
                 fontWeight: 600,
-                fontSize: "13px",
-                opacity: loading || !input.trim() ? 0.5 : 1,
+                fontSize: "14px",
+                opacity: loading || !input.trim() ? 0.4 : 1,
               }}
             >
               →
