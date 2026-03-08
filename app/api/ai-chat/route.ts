@@ -3,12 +3,19 @@ import type { ReportData, Product } from "@/lib/types";
 
 // Stop-words to ignore when keyword-matching product names
 const STOP_WORDS = new Set([
+  // question words
   "how","many","units","did","i","sell","what","is","the","a","an","of","for",
   "in","on","at","to","and","or","do","does","sold","sales","selling","show",
   "me","my","tell","about","with","by","from","has","have","had","much","are",
   "were","was","be","been","being","get","got","its","it","this","that","which",
   "product","products","item","items","department","brand","per","total","give",
   "find","list","can","could","please","you","your","week","today","wtd","ytd",
+  // generic packaging / size descriptors
+  "bottle","bottles","can","cans","pack","packs","packet","packets","bag","bags",
+  "box","boxes","tin","tins","jar","jars","tray","trays","multipack","multi",
+  "litre","litres","liter","liters","ml","cl","kg","grams","gram","oz","pint",
+  "pints","roll","rolls","slice","slices","piece","pieces","unit","single",
+  "large","small","medium","mini","big","regular","size","sized","original",
 ]);
 
 function extractKeywords(message: string): string[] {
