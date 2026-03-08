@@ -50,9 +50,9 @@ Be concise, specific, and actionable. Use the data above to answer questions acc
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "AI chat not configured (missing API key)" }, { status: 503 });
+    return NextResponse.json({ error: "AI chat not configured (missing OPENAI_API_KEY)" }, { status: 503 });
   }
 
   let body: { message: string; reportData: ReportData };
@@ -68,32 +68,33 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-haiku-20241022",
+        model: "gpt-4o-mini",
         max_tokens: 1024,
-        system: buildContext(reportData),
-        messages: [{ role: "user", content: message }],
+        messages: [
+          { role: "system", content: buildContext(reportData) },
+          { role: "user", content: message },
+        ],
       }),
     });
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("Anthropic API error:", res.status, errText);
+      console.error("OpenAI API error:", res.status, errText);
       return NextResponse.json(
-        { error: `Anthropic error ${res.status}: ${errText}` },
+        { error: `OpenAI error ${res.status}: ${errText}` },
         { status: 502 }
       );
     }
 
     const data = await res.json();
-    const content = data.content?.[0]?.text ?? "No response";
+    const content = data.choices?.[0]?.message?.content ?? "No response";
     return NextResponse.json({ content });
   } catch (err) {
     console.error("AI chat error:", err);
