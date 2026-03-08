@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         system: buildContext(reportData),
         messages: [{ role: "user", content: message }],
@@ -84,9 +84,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      console.error("Anthropic API error:", err);
-      return NextResponse.json({ error: "AI service error. Please try again." }, { status: 502 });
+      const errText = await res.text();
+      console.error("Anthropic API error:", res.status, errText);
+      return NextResponse.json(
+        { error: `Anthropic error ${res.status}: ${errText}` },
+        { status: 502 }
+      );
     }
 
     const data = await res.json();
