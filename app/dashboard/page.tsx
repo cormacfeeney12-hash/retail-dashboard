@@ -7,6 +7,7 @@ import { PeriodTabs } from "@/components/ui/PeriodTabs";
 import { WeeklyTrendChart } from "@/components/charts/WeeklyTrendChart";
 import { DeptBarChart } from "@/components/charts/DeptBarChart";
 import { AiChat } from "@/components/AiChat";
+import { CpuAlerts } from "@/components/CpuAlerts";
 import { C, fmt, fmtK, fmtPct } from "@/lib/utils";
 import type { Period } from "@/lib/types";
 
@@ -116,6 +117,9 @@ export default function OverviewPage() {
           <DeptBarChart data={departments} />
         </div>
       </div>
+
+      {/* CPU Price Alerts */}
+      <CpuAlerts />
 
       {/* Footer */}
       <div
