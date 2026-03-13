@@ -1,75 +1,297 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { supabase } from "@/lib/supabase";
 import { SAMPLE_DATA } from "@/lib/sample-data";
 import { KpiCard } from "@/components/ui/KpiCard";
-import { PeriodTabs } from "@/components/ui/PeriodTabs";
-import { WeeklyTrendChart } from "@/components/charts/WeeklyTrendChart";
 import { DeptBarChart } from "@/components/charts/DeptBarChart";
 import { AiChat } from "@/components/AiChat";
 import { CpuAlerts } from "@/components/CpuAlerts";
-import { C, fmt, fmtK, fmtPct } from "@/lib/utils";
-import type { Period } from "@/lib/types";
+import { C, fmt, fmtK } from "@/lib/utils";
 
-const { summary, footfall, weeklyTrend, departments } = SAMPLE_DATA;
+const { departments } = SAMPLE_DATA;
+
+interface TopSellerRow {
+  yd_sales: number | null;
+  yd_margin: number | null;
+  l7d_sales: number | null;
+  l7d_margin: number | null;
+  ytd_sales: number | null;
+  ytd_margin: number | null;
+  ly_sales: number | null;
+  ly_margin: number | null;
+  category: string;
+  category_code: string;
+}
+
+const num = (v: unknown): number => (typeof v === "number" ? v : 0);
 
 export default function OverviewPage() {
-  const [period, setPeriod] = useState<Period>("daily");
+  const [rows, setRows] = useState<TopSellerRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const d = summary[period];
-  const ff = footfall[period];
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      const PAGE = 1000;
+      let all: TopSellerRow[] = [];
+      let from = 0;
+      let done = false;
 
-  const isYtd = period === "ytd";
-  const salesValue = isYtd ? fmtK(d.retailSales) : fmt(d.retailSales);
+      while (!done) {
+        const { data, error } = await supabase
+          .from("top_sellers")
+          .select("yd_sales,yd_margin,l7d_sales,l7d_margin,ytd_sales,ytd_margin,ly_sales,ly_margin,category,category_code")
+          .eq("store_number", "2064")
+          .range(from, from + PAGE - 1);
+
+        if (error) {
+          console.error("Overview fetch error:", error);
+          break;
+        }
+        all = all.concat(data || []);
+        if (!data || data.length < PAGE) done = true;
+        else from += PAGE;
+      }
+
+      setRows(all);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const kpis = useMemo(() => {
+    let ydSales = 0, ydMargin = 0;
+    let l7dSales = 0, l7dMargin = 0;
+    let ytdSales = 0, ytdMargin = 0;
+    let lySales = 0, lyMargin = 0;
+
+    for (const r of rows) {
+      ydSales += num(r.yd_sales);
+      ydMargin += num(r.yd_margin);
+      l7dSales += num(r.l7d_sales);
+      l7dMargin += num(r.l7d_margin);
+      ytdSales += num(r.ytd_sales);
+      ytdMargin += num(r.ytd_margin);
+      lySales += num(r.ly_sales);
+      lyMargin += num(r.ly_margin);
+    }
+
+    const pct = (margin: number, sales: number) =>
+      sales !== 0 ? (margin / sales) * 100 : 0;
+
+    return {
+      ydSales, ydMargin, ydMarginPct: pct(ydMargin, ydSales),
+      l7dSales, l7dMargin, l7dMarginPct: pct(l7dMargin, l7dSales),
+      ytdSales, ytdMargin, ytdMarginPct: pct(ytdMargin, ytdSales),
+      lySales, lyMargin, lyMarginPct: pct(lyMargin, lySales),
+    };
+  }, [rows]);
+
+  // Category breakdown for the bar chart area
+  const categoryBreakdown = useMemo(() => {
+    const map = new Map<string, { name: string; l7d_sales: number; l7d_margin: number }>();
+    for (const r of rows) {
+      const key = r.category_code || r.category || "Unknown";
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          name: r.category?.replace(/^[A-Z]\d+\s*-\s*/, "") || key,
+          l7d_sales: num(r.l7d_sales),
+          l7d_margin: num(r.l7d_margin),
+        });
+      } else {
+        existing.l7d_sales += num(r.l7d_sales);
+        existing.l7d_margin += num(r.l7d_margin);
+      }
+    }
+    return Array.from(map.values())
+      .sort((a, b) => b.l7d_sales - a.l7d_sales)
+      .slice(0, 10);
+  }, [rows]);
+
+  const marginColor = (pct: number) => {
+    if (pct >= 30) return C.green;
+    if (pct >= 20) return C.amber;
+    return C.red;
+  };
 
   return (
     <>
-      {/* Period toggle */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "20px" }}>
-        <PeriodTabs active={period} onChange={setPeriod} />
-      </div>
-
       {/* KPI grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "24px" }}>
-        <KpiCard
-          label="Retail Sales"
-          value={salesValue}
-          variancePct={d.retailSalesVarPct}
-          subtitle={`LY: ${isYtd ? fmtK(d.retailSalesLY) : fmt(d.retailSalesLY)}`}
-          accent={C.accent}
-        />
-        <KpiCard
-          label="Scan Margin %"
-          value={`${(d.scanMargin * 100).toFixed(2)}%`}
-          variancePct={d.scanMarginVar}
-          subtitle={`LY: ${(d.scanMarginLY * 100).toFixed(2)}%`}
-          accent={C.accent}
-        />
-        <KpiCard
-          label="Waste"
-          value={fmt(d.waste)}
-          variancePct={d.wasteVarPct}
-          invert
-          subtitle={`LY: ${fmt(d.wasteLY)}`}
-          accent={C.accent}
-        />
-        <KpiCard
-          label="Transactions"
-          value="—"
-          variancePct={ff.transVar}
-          subtitle={`vs LY: ${fmtPct(ff.transVar)}`}
-          accent={C.accent}
-        />
-        <KpiCard
-          label="Avg Spend"
-          value="—"
-          variancePct={ff.avgSpendVar}
-          subtitle={`vs LY: ${fmtPct(ff.avgSpendVar)}`}
-          accent={C.accent}
-        />
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: "12px",
+          marginBottom: "16px",
+        }}
+      >
+        {/* Retail Sales */}
+        <div
+          style={{
+            background: C.card,
+            borderRadius: "10px",
+            padding: "18px 20px",
+            borderTop: `2px solid ${C.accent}`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: "10px",
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              color: C.textDim,
+              textTransform: "uppercase",
+              marginBottom: "12px",
+            }}
+          >
+            Retail Sales
+          </div>
+          {loading ? (
+            <div style={{ color: C.textDim, fontSize: "13px" }}>Loading...</div>
+          ) : (
+            <div style={{ display: "flex", gap: "20px" }}>
+              {[
+                { label: "Yesterday", value: kpis.ydSales },
+                { label: "Last 7 Days", value: kpis.l7dSales },
+                { label: "YTD", value: kpis.ytdSales },
+              ].map((item) => (
+                <div key={item.label} style={{ flex: 1 }}>
+                  <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
+                    {item.label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: 600,
+                      color: C.text,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {item.value > 99999 ? fmtK(item.value) : fmt(item.value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Scan Margin % */}
+        <div
+          style={{
+            background: C.card,
+            borderRadius: "10px",
+            padding: "18px 20px",
+            borderTop: `2px solid ${C.accent}`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: "10px",
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              color: C.textDim,
+              textTransform: "uppercase",
+              marginBottom: "12px",
+            }}
+          >
+            Scan Margin %
+          </div>
+          {loading ? (
+            <div style={{ color: C.textDim, fontSize: "13px" }}>Loading...</div>
+          ) : (
+            <div style={{ display: "flex", gap: "20px" }}>
+              {[
+                { label: "Yesterday", value: kpis.ydMarginPct },
+                { label: "Last 7 Days", value: kpis.l7dMarginPct },
+                { label: "YTD", value: kpis.ytdMarginPct },
+              ].map((item) => (
+                <div key={item.label} style={{ flex: 1 }}>
+                  <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
+                    {item.label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: 600,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      lineHeight: 1.2,
+                      color: marginColor(item.value),
+                    }}
+                  >
+                    {item.value.toFixed(2)}%
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* LY Comparison */}
+        <div
+          style={{
+            background: C.card,
+            borderRadius: "10px",
+            padding: "18px 20px",
+            borderTop: `2px solid ${C.textMuted}`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: "10px",
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              color: C.textDim,
+              textTransform: "uppercase",
+              marginBottom: "12px",
+            }}
+          >
+            Last Year
+          </div>
+          {loading ? (
+            <div style={{ color: C.textDim, fontSize: "13px" }}>Loading...</div>
+          ) : (
+            <div style={{ display: "flex", gap: "20px" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
+                  LY Sales
+                </div>
+                <div
+                  style={{
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    color: C.text,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {kpis.lySales > 99999 ? fmtK(kpis.lySales) : fmt(kpis.lySales)}
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
+                  LY Margin %
+                </div>
+                <div
+                  style={{
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    lineHeight: 1.2,
+                    color: marginColor(kpis.lyMarginPct),
+                  }}
+                >
+                  {kpis.lyMarginPct.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Charts row */}
+      {/* Category Sales Breakdown */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
         <div
           style={{
@@ -89,9 +311,71 @@ export default function OverviewPage() {
               letterSpacing: "0.06em",
             }}
           >
-            Weekly Sales Trend — Last 4 Weeks
+            Top Categories — Last 7 Days Sales
           </h3>
-          <WeeklyTrendChart data={weeklyTrend} />
+          {loading ? (
+            <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>
+              Loading...
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {categoryBreakdown.map((cat, i) => {
+                const maxSales = categoryBreakdown[0]?.l7d_sales || 1;
+                const pct = cat.l7d_sales > 0 ? (cat.l7d_margin / cat.l7d_sales) * 100 : 0;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: C.textDim,
+                        width: "180px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {cat.name}
+                    </div>
+                    <div style={{ flex: 1, height: "18px", background: C.bg, borderRadius: "4px", overflow: "hidden" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${(cat.l7d_sales / maxSales) * 100}%`,
+                          background: `${C.accent}88`,
+                          borderRadius: "4px",
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        color: C.text,
+                        width: "70px",
+                        textAlign: "right",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {fmt(cat.l7d_sales)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        color: marginColor(pct),
+                        width: "50px",
+                        textAlign: "right",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {pct.toFixed(1)}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div
@@ -131,7 +415,7 @@ export default function OverviewPage() {
           justifyContent: "space-between",
         }}
       >
-        <span>Source: Pyramid Analytics</span>
+        <span>Source: Pyramid Analytics — Store 2064</span>
         <span>Retail Dashboard v1 — AI Powered</span>
       </div>
 
