@@ -5,6 +5,7 @@ import { C } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { label: "Overview",        path: "/dashboard" },
+  { label: "Margin Alerts",   path: "/dashboard/margin-alerts" },
   { label: "⏰ Trading Hours", path: "/dashboard/trading" },
   { label: "🌦️ Weather",      path: "/dashboard/weather" },
   { label: "☕ F&H Coffee",   path: "/dashboard/coffee" },
