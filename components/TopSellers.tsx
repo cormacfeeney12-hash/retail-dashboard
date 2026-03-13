@@ -37,7 +37,7 @@ type Period = "yd" | "l7d" | "ytd" | "ly";
 type SortField = "margin" | "sales" | "qty";
 type SortDir = "desc" | "asc";
 type StoreFilter = "2064" | "2056" | "combined";
-type Slice = "top" | "bottom";
+type Slice = "all" | "top" | "bottom";
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: "yd", label: "Yesterday" },
@@ -117,7 +117,7 @@ export function TopSellers() {
   // Sort & slice
   const [sortField, setSortField] = useState<SortField>("margin");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [slice, setSlice] = useState<Slice>("top");
+  const [slice, setSlice] = useState<Slice>("all");
 
   /* ---------- Fetch data (paginate past Supabase 1000-row default) -- */
 
@@ -227,10 +227,10 @@ export function TopSellers() {
       return sortDir === "desc" ? vb - va : va - vb;
     });
 
-    // Slice top/bottom 100
+    // Slice top/bottom 100 (or show all)
     if (slice === "top") {
       rows = rows.slice(0, 100);
-    } else {
+    } else if (slice === "bottom") {
       rows = rows.slice(-100).reverse();
     }
 
@@ -297,17 +297,40 @@ export function TopSellers() {
             </p>
           </div>
 
-          <button
-            onClick={handleExport}
-            style={{
-              ...pillBtn(false),
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-          >
-            <span style={{ fontSize: "14px" }}>&#8595;</span> Export Excel
-          </button>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              onClick={() => {
+                setCategory("All");
+                setSubcategory("All");
+                setPeriod("l7d");
+                setSortField("margin");
+                setSortDir("desc");
+                setSlice("all");
+                setSearch("");
+              }}
+              style={{
+                ...pillBtn(false),
+                borderColor: C.green,
+                color: C.green,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              Reset
+            </button>
+            <button
+              onClick={handleExport}
+              style={{
+                ...pillBtn(false),
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <span style={{ fontSize: "14px" }}>&#8595;</span> Export Excel
+            </button>
+          </div>
         </div>
 
         {/* Controls row 1: Store, Period */}
@@ -395,8 +418,11 @@ export function TopSellers() {
 
           <div style={{ width: "1px", height: "20px", background: C.border }} />
 
-          {/* Top / Bottom toggle */}
+          {/* All / Top / Bottom toggle */}
           <div style={{ display: "flex", gap: "2px" }}>
+            <button onClick={() => setSlice("all")} style={pillBtn(slice === "all")}>
+              All
+            </button>
             <button onClick={() => setSlice("top")} style={pillBtn(slice === "top")}>
               Top 100
             </button>
