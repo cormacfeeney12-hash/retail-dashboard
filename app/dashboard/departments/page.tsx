@@ -11,6 +11,9 @@ import { C, fmt } from "@/lib/utils";
 /* ------------------------------------------------------------------ */
 
 interface TopSellerRow {
+  store_number: string;
+  name: string;
+  lv_code: string;
   category: string;
   category_code: string;
   subcategory: string;
@@ -32,17 +35,29 @@ interface TopSellerRow {
   yd_margin_pct: number | null;
 }
 
-interface DeptRow {
+interface AggRow {
   name: string;
   code: string;
   sales: number;
   qty: number;
   margin: number;
   marginPct: number;
-  subDepts?: DeptRow[];
+  childCount?: number;
+}
+
+interface MarginAlert {
+  name: string;
+  category: string;
+  l7dMarginPct: number;
+  ytdMarginPct: number;
+  dropPct: number;
+  qty: number;
+  marginImpact: number;
 }
 
 type Period = "yd" | "l7d" | "ytd" | "ly";
+type StoreFilter = "2064" | "2056" | "both";
+type DrillLevel = "category" | "subcategory" | "product";
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: "yd", label: "Yesterday" },
@@ -56,7 +71,6 @@ const PERIODS: { key: Period; label: string }[] = [
 /* ------------------------------------------------------------------ */
 
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
-
 const fmtQty = (v: number) => v.toLocaleString("en-IE");
 
 const marginColor = (pct: number) => {
@@ -77,6 +91,21 @@ const pillBtn = (active: boolean): React.CSSProperties => ({
   transition: "all 0.15s",
 });
 
+const thStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  color: C.textDim,
+  fontWeight: 600,
+  fontSize: "11px",
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  borderBottom: `1px solid ${C.border}`,
+  background: C.card,
+  position: "sticky",
+  top: 0,
+  zIndex: 1,
+  whiteSpace: "nowrap",
+};
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -84,11 +113,22 @@ const pillBtn = (active: boolean): React.CSSProperties => ({
 export default function DepartmentsPage() {
   const [rawData, setRawData] = useState<TopSellerRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [store, setStore] = useState<StoreFilter>("2064");
   const [period, setPeriod] = useState<Period>("l7d");
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
 
-  /* ---------- Fetch ---------- */
+  // Drill-down state
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [alertsExpanded, setAlertsExpanded] = useState(true);
+
+  const drillLevel: DrillLevel = selectedSubcategory
+    ? "product"
+    : selectedCategory
+      ? "subcategory"
+      : "category";
+
+  /* ---------- Fetch all data ---------- */
 
   useEffect(() => {
     async function load() {
@@ -101,10 +141,7 @@ export default function DepartmentsPage() {
       while (!done) {
         const { data, error } = await supabase
           .from("top_sellers")
-          .select(
-            "category,category_code,subcategory,l7d_sales,l7d_qty,l7d_margin,l7d_margin_pct,ly_sales,ly_qty,ly_margin,ly_margin_pct,ytd_sales,ytd_qty,ytd_margin,ytd_margin_pct,yd_sales,yd_qty,yd_margin,yd_margin_pct"
-          )
-          .eq("store_number", "2064")
+          .select("*")
           .range(from, from + PAGE - 1);
 
         if (error) {
@@ -122,127 +159,213 @@ export default function DepartmentsPage() {
     load();
   }, []);
 
-  /* ---------- Aggregate by category ---------- */
+  /* ---------- Filter by store ---------- */
 
-  const departments = useMemo(() => {
-    const salesKey = `${period}_sales` as keyof TopSellerRow;
-    const qtyKey = `${period}_qty` as keyof TopSellerRow;
-    const marginKey = `${period}_margin` as keyof TopSellerRow;
+  const storeData = useMemo(() => {
+    if (store === "both") return rawData;
+    return rawData.filter((r) => r.store_number === store);
+  }, [rawData, store]);
 
-    const catMap = new Map<
-      string,
-      { name: string; code: string; sales: number; qty: number; margin: number; subMap: Map<string, { name: string; sales: number; qty: number; margin: number }> }
-    >();
+  /* ---------- Period column keys ---------- */
 
-    for (const r of rawData) {
-      const catKey = r.category || "Unknown";
-      const catCode = r.category_code || "";
-      let cat = catMap.get(catKey);
-      if (!cat) {
-        cat = { name: catKey, code: catCode, sales: 0, qty: 0, margin: 0, subMap: new Map() };
-        catMap.set(catKey, cat);
+  const salesKey = `${period}_sales` as keyof TopSellerRow;
+  const qtyKey = `${period}_qty` as keyof TopSellerRow;
+  const marginKey = `${period}_margin` as keyof TopSellerRow;
+
+  /* ---------- Margin Drop Alerts (always L7D vs YTD) ---------- */
+
+  const marginAlerts = useMemo(() => {
+    const alerts: MarginAlert[] = [];
+    for (const r of storeData) {
+      const l7dPct = num(r.l7d_margin_pct);
+      const ytdPct = num(r.ytd_margin_pct);
+      const l7dSales = num(r.l7d_sales);
+      const l7dMargin = num(r.l7d_margin);
+      const l7dQty = num(r.l7d_qty);
+
+      if (l7dSales <= 0 || ytdPct <= 0) continue;
+
+      const dropPct = (ytdPct - l7dPct) * 100; // in percentage points
+      if (dropPct > 3) {
+        // margin impact: what margin would have been at ytd rate minus actual
+        const expectedMargin = l7dSales * ytdPct;
+        const impact = expectedMargin - l7dMargin;
+        alerts.push({
+          name: r.name,
+          category: r.category,
+          l7dMarginPct: l7dPct * 100,
+          ytdMarginPct: ytdPct * 100,
+          dropPct,
+          qty: l7dQty,
+          marginImpact: impact,
+        });
       }
+    }
+    alerts.sort((a, b) => b.qty - a.qty);
+    return alerts.slice(0, 50);
+  }, [storeData]);
+
+  /* ---------- Aggregate data for current drill level ---------- */
+
+  const displayRows = useMemo(() => {
+    if (drillLevel === "product") {
+      // Show individual products for the selected subcategory
+      let products = storeData.filter(
+        (r) => r.category === selectedCategory && r.subcategory === selectedSubcategory
+      );
+      if (search) {
+        const q = search.toLowerCase();
+        products = products.filter((r) => r.name?.toLowerCase().includes(q) || r.lv_code?.toLowerCase().includes(q));
+      }
+      const rows: AggRow[] = products.map((r) => ({
+        name: r.name || r.lv_code,
+        code: r.lv_code,
+        sales: num(r[salesKey]),
+        qty: num(r[qtyKey]),
+        margin: num(r[marginKey]),
+        marginPct: num(r[salesKey]) !== 0 ? (num(r[marginKey]) / num(r[salesKey])) * 100 : 0,
+      }));
+      rows.sort((a, b) => b.margin - a.margin);
+      return rows;
+    }
+
+    if (drillLevel === "subcategory") {
+      // Aggregate by subcategory within selected category
+      const subMap = new Map<string, { sales: number; qty: number; margin: number; count: number }>();
+      for (const r of storeData) {
+        if (r.category !== selectedCategory) continue;
+        const key = r.subcategory || "Other";
+        const existing = subMap.get(key);
+        const s = num(r[salesKey]);
+        const q = num(r[qtyKey]);
+        const m = num(r[marginKey]);
+        if (!existing) {
+          subMap.set(key, { sales: s, qty: q, margin: m, count: 1 });
+        } else {
+          existing.sales += s;
+          existing.qty += q;
+          existing.margin += m;
+          existing.count++;
+        }
+      }
+      let rows: AggRow[] = Array.from(subMap.entries()).map(([name, v]) => ({
+        name,
+        code: "",
+        sales: v.sales,
+        qty: v.qty,
+        margin: v.margin,
+        marginPct: v.sales !== 0 ? (v.margin / v.sales) * 100 : 0,
+        childCount: v.count,
+      }));
+      if (search) {
+        const q = search.toLowerCase();
+        rows = rows.filter((r) => r.name.toLowerCase().includes(q));
+      }
+      rows.sort((a, b) => b.margin - a.margin);
+      return rows;
+    }
+
+    // Category level - aggregate by category, top 10 by margin
+    const catMap = new Map<string, { name: string; code: string; sales: number; qty: number; margin: number; subCount: Set<string> }>();
+    for (const r of storeData) {
+      const key = r.category || "Unknown";
+      const existing = catMap.get(key);
       const s = num(r[salesKey]);
       const q = num(r[qtyKey]);
       const m = num(r[marginKey]);
-      cat.sales += s;
-      cat.qty += q;
-      cat.margin += m;
-
-      const subKey = r.subcategory || "Other";
-      let sub = cat.subMap.get(subKey);
-      if (!sub) {
-        sub = { name: subKey, sales: 0, qty: 0, margin: 0 };
-        cat.subMap.set(subKey, sub);
+      if (!existing) {
+        const subs = new Set<string>();
+        if (r.subcategory) subs.add(r.subcategory);
+        catMap.set(key, { name: key, code: r.category_code || "", sales: s, qty: q, margin: m, subCount: subs });
+      } else {
+        existing.sales += s;
+        existing.qty += q;
+        existing.margin += m;
+        if (r.subcategory) existing.subCount.add(r.subcategory);
       }
-      sub.sales += s;
-      sub.qty += q;
-      sub.margin += m;
     }
-
-    const result: DeptRow[] = [];
-    for (const [, cat] of catMap) {
-      const subDepts: DeptRow[] = [];
-      for (const [, sub] of cat.subMap) {
-        subDepts.push({
-          name: sub.name,
-          code: "",
-          sales: sub.sales,
-          qty: sub.qty,
-          margin: sub.margin,
-          marginPct: sub.sales !== 0 ? (sub.margin / sub.sales) * 100 : 0,
-        });
-      }
-      subDepts.sort((a, b) => b.sales - a.sales);
-
-      result.push({
-        name: cat.name,
-        code: cat.code,
-        sales: cat.sales,
-        qty: cat.qty,
-        margin: cat.margin,
-        marginPct: cat.sales !== 0 ? (cat.margin / cat.sales) * 100 : 0,
-        subDepts,
-      });
+    let rows: AggRow[] = Array.from(catMap.values()).map((v) => ({
+      name: v.name,
+      code: v.code,
+      sales: v.sales,
+      qty: v.qty,
+      margin: v.margin,
+      marginPct: v.sales !== 0 ? (v.margin / v.sales) * 100 : 0,
+      childCount: v.subCount.size,
+    }));
+    if (search) {
+      const q = search.toLowerCase();
+      rows = rows.filter((r) => r.name.toLowerCase().includes(q));
     }
-    result.sort((a, b) => b.sales - a.sales);
-    return result;
-  }, [rawData, period]);
+    rows.sort((a, b) => b.margin - a.margin);
+    return rows;
+  }, [storeData, drillLevel, selectedCategory, selectedSubcategory, salesKey, qtyKey, marginKey, search]);
 
   /* ---------- Summary KPIs ---------- */
 
   const totals = useMemo(() => {
     let sales = 0, margin = 0, qty = 0;
-    for (const d of departments) {
-      sales += d.sales;
-      margin += d.margin;
-      qty += d.qty;
+    for (const r of displayRows) {
+      sales += r.sales;
+      margin += r.margin;
+      qty += r.qty;
     }
     return {
       sales,
       margin,
       qty,
       marginPct: sales !== 0 ? (margin / sales) * 100 : 0,
-      deptCount: departments.length,
     };
-  }, [departments]);
+  }, [displayRows]);
 
-  /* ---------- Action flags ---------- */
+  /* ---------- Breadcrumb ---------- */
 
-  const flags = useMemo(() => {
-    const lowMargin = departments.filter((d) => d.marginPct < 20 && d.sales > 0);
-    const highPerformers = departments.filter((d) => d.marginPct >= 30 && d.sales > 0);
-    return { lowMargin, highPerformers };
-  }, [departments]);
+  const breadcrumb: { label: string; onClick: (() => void) | null }[] = [
+    {
+      label: "All Categories",
+      onClick: drillLevel !== "category" ? () => { setSelectedCategory(null); setSelectedSubcategory(null); setSearch(""); } : null,
+    },
+  ];
+  if (selectedCategory) {
+    breadcrumb.push({
+      label: selectedCategory.replace(/^[A-Z]\d+\s*-\s*/, ""),
+      onClick: drillLevel === "product" ? () => { setSelectedSubcategory(null); setSearch(""); } : null,
+    });
+  }
+  if (selectedSubcategory) {
+    breadcrumb.push({
+      label: selectedSubcategory.replace(/^[A-Z]\d+\s*-\s*/, ""),
+      onClick: null,
+    });
+  }
 
-  /* ---------- Display data ---------- */
+  /* ---------- Navigation ---------- */
 
-  const displayData = useMemo(() => {
-    if (selectedDept) {
-      const dept = departments.find((d) => d.name === selectedDept);
-      let subs = dept?.subDepts || [];
-      if (search) {
-        const q = search.toLowerCase();
-        subs = subs.filter((s) => s.name.toLowerCase().includes(q));
-      }
-      return subs;
+  const handleRowClick = (row: AggRow) => {
+    if (drillLevel === "category") {
+      setSelectedCategory(row.name);
+      setSearch("");
+    } else if (drillLevel === "subcategory") {
+      setSelectedSubcategory(row.name);
+      setSearch("");
     }
-    let depts = departments;
-    if (search) {
-      const q = search.toLowerCase();
-      depts = depts.filter((d) => d.name.toLowerCase().includes(q));
-    }
-    return depts;
-  }, [departments, selectedDept, search]);
+  };
 
-  const selectedDeptData = departments.find((d) => d.name === selectedDept);
+  const handleBack = () => {
+    if (drillLevel === "product") {
+      setSelectedSubcategory(null);
+    } else if (drillLevel === "subcategory") {
+      setSelectedCategory(null);
+    }
+    setSearch("");
+  };
 
   /* ---------- Export ---------- */
 
   const handleExport = useCallback(async () => {
     const XLSX = await import("xlsx");
-    const exportRows = displayData.map((r) => ({
-      Department: r.name,
+    const exportRows = displayRows.map((r) => ({
+      Name: r.name,
       "Sales €": r.sales,
       Qty: r.qty,
       "Margin €": r.margin,
@@ -252,14 +375,12 @@ export default function DepartmentsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Departments");
     const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? period;
-    XLSX.writeFile(wb, `departments_2064_${periodLabel.replace(/\s/g, "_")}.xlsx`);
-  }, [displayData, period]);
+    XLSX.writeFile(wb, `departments_${store}_${periodLabel.replace(/\s/g, "_")}.xlsx`);
+  }, [displayRows, period, store]);
 
-  /* ---------- Breadcrumb ---------- */
+  /* ---------- Level label ---------- */
 
-  const breadcrumb = selectedDept
-    ? ["All Departments", selectedDept]
-    : ["All Departments"];
+  const levelLabel = drillLevel === "product" ? "Product" : drillLevel === "subcategory" ? "Subcategory" : "Category";
 
   /* ---------- Render ---------- */
 
@@ -283,56 +404,81 @@ export default function DepartmentsPage() {
             gap: "12px",
           }}
         >
-          {/* Title row */}
+          {/* Title + breadcrumb */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
-              <h2 style={{ fontSize: "16px", fontWeight: 700, color: C.text, margin: 0 }}>
-                Departments
-              </h2>
-              <div style={{ display: "flex", gap: "4px", marginTop: "4px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {drillLevel !== "category" && (
+                  <button
+                    onClick={handleBack}
+                    style={{
+                      background: "none",
+                      border: `1px solid ${C.border}`,
+                      borderRadius: "6px",
+                      color: C.accent,
+                      cursor: "pointer",
+                      padding: "4px 8px",
+                      fontSize: "14px",
+                      lineHeight: 1,
+                    }}
+                  >
+                    &#8592;
+                  </button>
+                )}
+                <h2 style={{ fontSize: "16px", fontWeight: 700, color: C.text, margin: 0 }}>
+                  Departments
+                </h2>
+              </div>
+              {/* Breadcrumb */}
+              <div style={{ display: "flex", gap: "2px", marginTop: "4px", fontSize: "12px" }}>
                 {breadcrumb.map((item, i) => (
-                  <span key={i} style={{ fontSize: "12px" }}>
-                    {i > 0 && <span style={{ color: C.textMuted, margin: "0 4px" }}>/</span>}
+                  <span key={i}>
+                    {i > 0 && <span style={{ color: C.textMuted, margin: "0 4px" }}>›</span>}
                     <span
-                      onClick={() => {
-                        if (i === 0) setSelectedDept(null);
-                      }}
+                      onClick={item.onClick ?? undefined}
                       style={{
-                        color: i < breadcrumb.length - 1 ? C.accent : C.textDim,
-                        cursor: i < breadcrumb.length - 1 ? "pointer" : "default",
+                        color: item.onClick ? C.accent : C.textDim,
+                        cursor: item.onClick ? "pointer" : "default",
                       }}
                     >
-                      {item}
+                      {item.label}
                     </span>
                   </span>
                 ))}
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              <button
-                onClick={handleExport}
-                style={{
-                  ...pillBtn(false),
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                }}
-              >
-                <span style={{ fontSize: "14px" }}>&#8595;</span> Export Excel
-              </button>
-            </div>
+            <button
+              onClick={handleExport}
+              style={{ ...pillBtn(false), display: "flex", alignItems: "center", gap: "4px" }}
+            >
+              <span style={{ fontSize: "14px" }}>&#8595;</span> Export Excel
+            </button>
           </div>
 
-          {/* Period toggle */}
+          {/* Store + Period toggles */}
           <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+            {/* Store toggle */}
+            <div style={{ display: "flex", gap: "2px" }}>
+              {(
+                [
+                  { key: "2064" as StoreFilter, label: "2064" },
+                  { key: "2056" as StoreFilter, label: "2056" },
+                  { key: "both" as StoreFilter, label: "Both Stores" },
+                ] as const
+              ).map((s) => (
+                <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key)}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ width: "1px", height: "20px", background: C.border }} />
+
+            {/* Period toggle */}
             <div style={{ display: "flex", gap: "2px" }}>
               {PERIODS.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => setPeriod(p.key)}
-                  style={pillBtn(period === p.key)}
-                >
+                <button key={p.key} onClick={() => setPeriod(p.key)} style={pillBtn(period === p.key)}>
                   {p.label}
                 </button>
               ))}
@@ -340,11 +486,10 @@ export default function DepartmentsPage() {
 
             <div style={{ width: "1px", height: "20px", background: C.border }} />
 
-            {/* Search */}
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search departments\u2026"
+              placeholder={`Search ${levelLabel.toLowerCase()}s\u2026`}
               style={{
                 background: C.bg,
                 border: `1px solid ${C.border}`,
@@ -369,106 +514,119 @@ export default function DepartmentsPage() {
             gap: "12px",
           }}
         >
-          <div
-            style={{
-              background: C.bg,
-              borderRadius: "8px",
-              padding: "14px 16px",
-              borderLeft: `3px solid ${C.accent}`,
-            }}
-          >
-            <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "6px" }}>
-              {selectedDept ? "Dept Sales" : "Total Sales"}
-            </div>
-            <div style={{ fontSize: "22px", fontWeight: 600, color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
-              {loading ? "..." : fmt(selectedDeptData?.sales ?? totals.sales)}
-            </div>
-          </div>
-          <div
-            style={{
-              background: C.bg,
-              borderRadius: "8px",
-              padding: "14px 16px",
-              borderLeft: `3px solid ${C.accent}`,
-            }}
-          >
-            <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "6px" }}>
-              {selectedDept ? "Dept Margin %" : "Avg Margin %"}
-            </div>
+          {[
+            { label: "Total Sales", value: fmt(totals.sales), accent: C.accent },
+            { label: "Margin %", value: `${totals.marginPct.toFixed(1)}%`, accent: marginColor(totals.marginPct), color: marginColor(totals.marginPct) },
+            { label: "Total Qty", value: fmtQty(totals.qty), accent: C.cyan },
+            { label: "Total Margin €", value: fmt(totals.margin), accent: C.amber },
+          ].map((kpi) => (
             <div
+              key={kpi.label}
               style={{
-                fontSize: "22px",
-                fontWeight: 600,
-                fontFamily: "'JetBrains Mono', monospace",
-                color: marginColor(selectedDeptData?.marginPct ?? totals.marginPct),
+                background: C.bg,
+                borderRadius: "8px",
+                padding: "14px 16px",
+                borderLeft: `3px solid ${kpi.accent}`,
               }}
             >
-              {loading ? "..." : `${(selectedDeptData?.marginPct ?? totals.marginPct).toFixed(1)}%`}
+              <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "6px" }}>
+                {kpi.label}
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 600, color: kpi.color ?? C.text, fontFamily: "'JetBrains Mono', monospace" }}>
+                {loading ? "..." : kpi.value}
+              </div>
             </div>
-          </div>
-          <div
-            style={{
-              background: C.bg,
-              borderRadius: "8px",
-              padding: "14px 16px",
-              borderLeft: `3px solid ${C.cyan}`,
-            }}
-          >
-            <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "6px" }}>
-              Total Qty
-            </div>
-            <div style={{ fontSize: "22px", fontWeight: 600, color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
-              {loading ? "..." : fmtQty(selectedDeptData?.qty ?? totals.qty)}
-            </div>
-          </div>
-          <div
-            style={{
-              background: C.bg,
-              borderRadius: "8px",
-              padding: "14px 16px",
-              borderLeft: `3px solid ${C.amber}`,
-            }}
-          >
-            <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "6px" }}>
-              Total Margin €
-            </div>
-            <div style={{ fontSize: "22px", fontWeight: 600, color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
-              {loading ? "..." : fmt(selectedDeptData?.margin ?? totals.margin)}
-            </div>
-          </div>
+          ))}
         </div>
 
-        {/* Action flags */}
-        {!selectedDept && !loading && (flags.lowMargin.length > 0 || flags.highPerformers.length > 0) && (
-          <div
-            style={{
-              padding: "12px 20px",
-              borderBottom: `1px solid ${C.border}`,
-              display: "flex",
-              gap: "16px",
-              flexWrap: "wrap",
-            }}
-          >
-            {flags.lowMargin.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
-                <span style={{ color: C.red, fontWeight: 600 }}>&#9679;</span>
-                <span style={{ color: C.textDim }}>
-                  <strong style={{ color: C.red }}>{flags.lowMargin.length}</strong> dept{flags.lowMargin.length !== 1 ? "s" : ""} below 20% margin
+        {/* Margin Drop Alerts */}
+        {!loading && marginAlerts.length > 0 && drillLevel === "category" && (
+          <div style={{ borderBottom: `1px solid ${C.border}` }}>
+            <div
+              onClick={() => setAlertsExpanded(!alertsExpanded)}
+              style={{
+                padding: "12px 20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "14px" }}>&#9888;&#65039;</span>
+                <span style={{ fontSize: "13px", fontWeight: 600, color: C.amber }}>
+                  Margin Drop Alerts — Last 7 Days vs YTD
+                </span>
+                <span style={{ fontSize: "11px", color: C.textDim }}>
+                  ({marginAlerts.length} products)
                 </span>
               </div>
-            )}
-            {flags.highPerformers.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
-                <span style={{ color: C.green, fontWeight: 600 }}>&#9679;</span>
-                <span style={{ color: C.textDim }}>
-                  <strong style={{ color: C.green }}>{flags.highPerformers.length}</strong> dept{flags.highPerformers.length !== 1 ? "s" : ""} above 30% margin
-                </span>
+              <span style={{ color: C.textDim, fontSize: "12px" }}>
+                {alertsExpanded ? "▲ Collapse" : "▼ Expand"}
+              </span>
+            </div>
+            {alertsExpanded && (
+              <div style={{ overflowX: "auto", maxHeight: "300px", overflowY: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                  <thead>
+                    <tr>
+                      {[
+                        { label: "#", align: "right" },
+                        { label: "Product", align: "left" },
+                        { label: "Category", align: "left" },
+                        { label: "L7D Margin %", align: "right" },
+                        { label: "YTD Margin %", align: "right" },
+                        { label: "Drop %", align: "right" },
+                        { label: "Units Sold", align: "right" },
+                        { label: "Margin € Impact", align: "right" },
+                      ].map((h) => (
+                        <th key={h.label} style={{ ...thStyle, textAlign: h.align as "left" | "right" }}>
+                          {h.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {marginAlerts.map((a, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? C.bg : C.card }}>
+                        <td style={{ padding: "8px 12px", textAlign: "right", color: C.textDim, fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>
+                          {i + 1}
+                        </td>
+                        <td style={{ padding: "8px 12px", color: C.text, fontWeight: 500, maxWidth: "250px" }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {a.name}
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 12px", color: C.textDim, fontSize: "11px", maxWidth: "180px" }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {a.category?.replace(/^[A-Z]\d+\s*-\s*/, "")}
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: marginColor(a.l7dMarginPct) }}>
+                          {a.l7dMarginPct.toFixed(1)}%
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: marginColor(a.ytdMarginPct) }}>
+                          {a.ytdMarginPct.toFixed(1)}%
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
+                          -{a.dropPct.toFixed(1)}pp
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+                          {fmtQty(a.qty)}
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
+                          -{fmt(Math.abs(a.marginImpact))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         )}
 
-        {/* Table */}
+        {/* Main table */}
         {loading ? (
           <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>
             Loading departments...
@@ -480,134 +638,74 @@ export default function DepartmentsPage() {
                 <tr>
                   {[
                     { label: "#", align: "right" },
-                    { label: selectedDept ? "Sub-Department" : "Department", align: "left" },
+                    { label: levelLabel, align: "left" },
                     { label: "Sales €", align: "right" },
-                    { label: "Qty", align: "right" },
+                    { label: "Units", align: "right" },
                     { label: "Margin €", align: "right" },
                     { label: "Margin %", align: "right" },
                   ].map((h) => (
-                    <th
-                      key={h.label}
-                      style={{
-                        padding: "10px 12px",
-                        textAlign: h.align as "left" | "right",
-                        color: C.textDim,
-                        fontWeight: 600,
-                        fontSize: "11px",
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase",
-                        borderBottom: `1px solid ${C.border}`,
-                        background: C.card,
-                        position: "sticky",
-                        top: 0,
-                        zIndex: 1,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
+                    <th key={h.label} style={{ ...thStyle, textAlign: h.align as "left" | "right" }}>
                       {h.label}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {displayData.length === 0 ? (
+                {displayRows.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={6}
-                      style={{ textAlign: "center", padding: "40px", color: C.textDim }}
-                    >
-                      No departments found
+                    <td colSpan={6} style={{ textAlign: "center", padding: "40px", color: C.textDim }}>
+                      No data found
                     </td>
                   </tr>
                 ) : (
-                  displayData.map((row, i) => (
-                    <tr
-                      key={row.name + i}
-                      onClick={() => {
-                        if (!selectedDept && row.subDepts && row.subDepts.length > 0) {
-                          setSelectedDept(row.name);
-                          setSearch("");
-                        }
-                      }}
-                      style={{
-                        background: i % 2 === 0 ? C.bg : C.card,
-                        cursor: !selectedDept && row.subDepts ? "pointer" : undefined,
-                        transition: "background 0.1s",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!selectedDept && row.subDepts) {
-                          (e.currentTarget as HTMLTableRowElement).style.background = C.borderLight;
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLTableRowElement).style.background =
-                          i % 2 === 0 ? C.bg : C.card;
-                      }}
-                    >
-                      <td
+                  displayRows.map((row, i) => {
+                    const clickable = drillLevel !== "product";
+                    return (
+                      <tr
+                        key={row.name + row.code + i}
+                        onClick={() => clickable && handleRowClick(row)}
                         style={{
-                          padding: "10px 12px",
-                          textAlign: "right",
-                          color: C.textDim,
-                          fontSize: "11px",
-                          fontFamily: "'JetBrains Mono', monospace",
+                          background: i % 2 === 0 ? C.bg : C.card,
+                          cursor: clickable ? "pointer" : undefined,
+                          transition: "background 0.1s",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (clickable) (e.currentTarget as HTMLTableRowElement).style.background = C.borderLight;
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLTableRowElement).style.background = i % 2 === 0 ? C.bg : C.card;
                         }}
                       >
-                        {i + 1}
-                      </td>
-                      <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          {row.name?.replace(/^[A-Z]\d+\s*-\s*/, "")}
-                          {!selectedDept && row.subDepts && row.subDepts.length > 0 && (
-                            <span style={{ color: C.textMuted, fontSize: "11px" }}>
-                              ({row.subDepts.length})
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td
-                        style={{
-                          padding: "10px 12px",
-                          textAlign: "right",
-                          color: C.text,
-                          fontFamily: "'JetBrains Mono', monospace",
-                        }}
-                      >
-                        {fmt(row.sales)}
-                      </td>
-                      <td
-                        style={{
-                          padding: "10px 12px",
-                          textAlign: "right",
-                          color: C.text,
-                          fontFamily: "'JetBrains Mono', monospace",
-                        }}
-                      >
-                        {fmtQty(row.qty)}
-                      </td>
-                      <td
-                        style={{
-                          padding: "10px 12px",
-                          textAlign: "right",
-                          color: C.text,
-                          fontFamily: "'JetBrains Mono', monospace",
-                        }}
-                      >
-                        {fmt(row.margin)}
-                      </td>
-                      <td
-                        style={{
-                          padding: "10px 12px",
-                          textAlign: "right",
-                          fontFamily: "'JetBrains Mono', monospace",
-                          fontWeight: 600,
-                          color: marginColor(row.marginPct),
-                        }}
-                      >
-                        {row.marginPct.toFixed(1)}%
-                      </td>
-                    </tr>
-                  ))
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: C.textDim, fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>
+                          {i + 1}
+                        </td>
+                        <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500, maxWidth: "350px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {row.name?.replace(/^[A-Z]\d+\s*-\s*/, "")}
+                            </div>
+                            {clickable && row.childCount != null && row.childCount > 0 && (
+                              <span style={{ color: C.textMuted, fontSize: "11px", flexShrink: 0 }}>
+                                ({row.childCount}) ›
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
+                          {fmt(row.sales)}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
+                          {fmtQty(row.qty)}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
+                          {fmt(row.margin)}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: marginColor(row.marginPct) }}>
+                          {row.marginPct.toFixed(1)}%
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

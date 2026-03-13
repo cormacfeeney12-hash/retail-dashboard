@@ -3,7 +3,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { SAMPLE_DATA } from "@/lib/sample-data";
-import { KpiCard } from "@/components/ui/KpiCard";
 import { DeptBarChart } from "@/components/charts/DeptBarChart";
 import { AiChat } from "@/components/AiChat";
 import { CpuAlerts } from "@/components/CpuAlerts";
@@ -11,7 +10,10 @@ import { C, fmt, fmtK } from "@/lib/utils";
 
 const { departments } = SAMPLE_DATA;
 
+type StoreFilter = "2064" | "2056" | "both";
+
 interface TopSellerRow {
+  store_number: string;
   yd_sales: number | null;
   yd_margin: number | null;
   l7d_sales: number | null;
@@ -26,9 +28,22 @@ interface TopSellerRow {
 
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
 
+const pillBtn = (active: boolean): React.CSSProperties => ({
+  padding: "5px 12px",
+  borderRadius: "6px",
+  border: `1px solid ${active ? C.accent : C.border}`,
+  background: active ? `${C.accent}22` : "transparent",
+  color: active ? C.accent : C.textDim,
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: active ? 600 : 400,
+  transition: "all 0.15s",
+});
+
 export default function OverviewPage() {
-  const [rows, setRows] = useState<TopSellerRow[]>([]);
+  const [allRows, setAllRows] = useState<TopSellerRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [store, setStore] = useState<StoreFilter>("2064");
 
   useEffect(() => {
     async function load() {
@@ -41,8 +56,7 @@ export default function OverviewPage() {
       while (!done) {
         const { data, error } = await supabase
           .from("top_sellers")
-          .select("yd_sales,yd_margin,l7d_sales,l7d_margin,ytd_sales,ytd_margin,ly_sales,ly_margin,category,category_code")
-          .eq("store_number", "2064")
+          .select("store_number,yd_sales,yd_margin,l7d_sales,l7d_margin,ytd_sales,ytd_margin,ly_sales,ly_margin,category,category_code")
           .range(from, from + PAGE - 1);
 
         if (error) {
@@ -54,11 +68,16 @@ export default function OverviewPage() {
         else from += PAGE;
       }
 
-      setRows(all);
+      setAllRows(all);
       setLoading(false);
     }
     load();
   }, []);
+
+  const rows = useMemo(() => {
+    if (store === "both") return allRows;
+    return allRows.filter((r) => r.store_number === store);
+  }, [allRows, store]);
 
   const kpis = useMemo(() => {
     let ydSales = 0, ydMargin = 0;
@@ -88,7 +107,6 @@ export default function OverviewPage() {
     };
   }, [rows]);
 
-  // Category breakdown for the bar chart area
   const categoryBreakdown = useMemo(() => {
     const map = new Map<string, { name: string; l7d_sales: number; l7d_margin: number }>();
     for (const r of rows) {
@@ -116,8 +134,25 @@ export default function OverviewPage() {
     return C.red;
   };
 
+  const storeLabel = store === "both" ? "Both Stores" : `Store ${store}`;
+
   return (
     <>
+      {/* Store toggle */}
+      <div style={{ display: "flex", gap: "2px", marginBottom: "20px" }}>
+        {(
+          [
+            { key: "2064" as StoreFilter, label: "2064" },
+            { key: "2056" as StoreFilter, label: "2056" },
+            { key: "both" as StoreFilter, label: "Both Stores" },
+          ] as const
+        ).map((s) => (
+          <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       {/* KPI grid */}
       <div
         style={{
@@ -272,7 +307,7 @@ export default function OverviewPage() {
                 </div>
                 <div
                   style={{
-                    fontSize: "20px",
+                    fontSize: "26px",
                     fontWeight: 600,
                     color: C.text,
                     fontFamily: "'JetBrains Mono', monospace",
@@ -282,13 +317,13 @@ export default function OverviewPage() {
                   {kpis.lySales > 99999 ? fmtK(kpis.lySales) : fmt(kpis.lySales)}
                 </div>
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, borderLeft: `1px solid ${C.border}`, paddingLeft: "20px" }}>
                 <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
                   LY Margin %
                 </div>
                 <div
                   style={{
-                    fontSize: "20px",
+                    fontSize: "26px",
                     fontWeight: 600,
                     fontFamily: "'JetBrains Mono', monospace",
                     lineHeight: 1.2,
@@ -429,7 +464,7 @@ export default function OverviewPage() {
           justifyContent: "space-between",
         }}
       >
-        <span>Source: Pyramid Analytics — Store 2064</span>
+        <span>Source: Pyramid Analytics — {storeLabel}</span>
         <span>Retail Dashboard v1 — AI Powered</span>
       </div>
 
