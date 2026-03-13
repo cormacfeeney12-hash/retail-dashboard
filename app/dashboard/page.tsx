@@ -156,8 +156,14 @@ export default function OverviewPage() {
                 { label: "Yesterday", value: kpis.ydSales },
                 { label: "Last 7 Days", value: kpis.l7dSales },
                 { label: "YTD", value: kpis.ytdSales },
-              ].map((item) => (
-                <div key={item.label} style={{ flex: 1 }}>
+              ].map((item, idx) => (
+                <div
+                  key={item.label}
+                  style={{
+                    flex: 1,
+                    ...(idx > 0 ? { borderLeft: `1px solid ${C.border}`, paddingLeft: "20px" } : {}),
+                  }}
+                >
                   <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
                     {item.label}
                   </div>
@@ -207,8 +213,14 @@ export default function OverviewPage() {
                 { label: "Yesterday", value: kpis.ydMarginPct },
                 { label: "Last 7 Days", value: kpis.l7dMarginPct },
                 { label: "YTD", value: kpis.ytdMarginPct },
-              ].map((item) => (
-                <div key={item.label} style={{ flex: 1 }}>
+              ].map((item, idx) => (
+                <div
+                  key={item.label}
+                  style={{
+                    flex: 1,
+                    ...(idx > 0 ? { borderLeft: `1px solid ${C.border}`, paddingLeft: "20px" } : {}),
+                  }}
+                >
                   <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
                     {item.label}
                   </div>
