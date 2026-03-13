@@ -123,8 +123,8 @@ export default function OverviewPage() {
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "12px",
-          marginBottom: "16px",
+          gap: "16px",
+          marginBottom: "24px",
         }}
       >
         {/* Retail Sales */}
@@ -132,18 +132,18 @@ export default function OverviewPage() {
           style={{
             background: C.card,
             borderRadius: "10px",
-            padding: "18px 20px",
+            padding: "28px 28px",
             borderTop: `2px solid ${C.accent}`,
           }}
         >
           <div
             style={{
-              fontSize: "10px",
+              fontSize: "11px",
               fontWeight: 600,
               letterSpacing: "0.08em",
               color: C.textDim,
               textTransform: "uppercase",
-              marginBottom: "12px",
+              marginBottom: "16px",
             }}
           >
             Retail Sales
@@ -163,7 +163,7 @@ export default function OverviewPage() {
                   </div>
                   <div
                     style={{
-                      fontSize: "20px",
+                      fontSize: "26px",
                       fontWeight: 600,
                       color: C.text,
                       fontFamily: "'JetBrains Mono', monospace",
@@ -183,18 +183,18 @@ export default function OverviewPage() {
           style={{
             background: C.card,
             borderRadius: "10px",
-            padding: "18px 20px",
+            padding: "28px 28px",
             borderTop: `2px solid ${C.accent}`,
           }}
         >
           <div
             style={{
-              fontSize: "10px",
+              fontSize: "11px",
               fontWeight: 600,
               letterSpacing: "0.08em",
               color: C.textDim,
               textTransform: "uppercase",
-              marginBottom: "12px",
+              marginBottom: "16px",
             }}
           >
             Scan Margin %
@@ -214,7 +214,7 @@ export default function OverviewPage() {
                   </div>
                   <div
                     style={{
-                      fontSize: "20px",
+                      fontSize: "26px",
                       fontWeight: 600,
                       fontFamily: "'JetBrains Mono', monospace",
                       lineHeight: 1.2,
@@ -234,18 +234,18 @@ export default function OverviewPage() {
           style={{
             background: C.card,
             borderRadius: "10px",
-            padding: "18px 20px",
+            padding: "28px 28px",
             borderTop: `2px solid ${C.textMuted}`,
           }}
         >
           <div
             style={{
-              fontSize: "10px",
+              fontSize: "11px",
               fontWeight: 600,
               letterSpacing: "0.08em",
               color: C.textDim,
               textTransform: "uppercase",
-              marginBottom: "12px",
+              marginBottom: "16px",
             }}
           >
             Last Year
@@ -403,7 +403,9 @@ export default function OverviewPage() {
       </div>
 
       {/* CPU Price Alerts */}
-      <CpuAlerts />
+      <div style={{ marginTop: "40px" }}>
+        <CpuAlerts />
+      </div>
 
       {/* Footer */}
       <div
