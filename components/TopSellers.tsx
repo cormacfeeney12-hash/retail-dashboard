@@ -216,7 +216,7 @@ export function TopSellers() {
     // Search
     if (search) {
       const q = search.toLowerCase();
-      rows = rows.filter((r) => r.name?.toLowerCase().includes(q));
+      rows = rows.filter((r) => r.name?.toLowerCase().includes(q) || r.lv_code?.toLowerCase().includes(q));
     }
 
     // Sort
