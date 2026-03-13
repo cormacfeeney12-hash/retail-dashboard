@@ -47,6 +47,7 @@ interface AggRow {
 
 interface MarginAlert {
   name: string;
+  lvCode: string;
   category: string;
   l7dMarginPct: number;
   ytdMarginPct: number;
@@ -120,7 +121,8 @@ export default function DepartmentsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [alertsExpanded, setAlertsExpanded] = useState(true);
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
+  const [showAlertDetail, setShowAlertDetail] = useState(false);
 
   const drillLevel: DrillLevel = selectedSubcategory
     ? "product"
@@ -192,6 +194,7 @@ export default function DepartmentsPage() {
         const impact = expectedMargin - l7dMargin;
         alerts.push({
           name: r.name,
+          lvCode: r.lv_code,
           category: r.category,
           l7dMarginPct: l7dPct * 100,
           ytdMarginPct: ytdPct * 100,
@@ -204,6 +207,29 @@ export default function DepartmentsPage() {
     alerts.sort((a, b) => b.qty - a.qty);
     return alerts.slice(0, 50);
   }, [storeData]);
+
+  /* ---------- Alert summary stats ---------- */
+
+  const alertSummary = useMemo(() => {
+    let totalImpact = 0;
+    for (const a of marginAlerts) totalImpact += a.marginImpact;
+
+    // Store-level L7D vs YTD margin
+    let l7dSales = 0, l7dMargin = 0, ytdSales = 0, ytdMargin = 0;
+    for (const r of storeData) {
+      l7dSales += num(r.l7d_sales);
+      l7dMargin += num(r.l7d_margin);
+      ytdSales += num(r.ytd_sales);
+      ytdMargin += num(r.ytd_margin);
+    }
+    const l7dPct = l7dSales !== 0 ? (l7dMargin / l7dSales) * 100 : 0;
+    const ytdPct = ytdSales !== 0 ? (ytdMargin / ytdSales) * 100 : 0;
+    const changePp = l7dPct - ytdPct;
+
+    const top5 = [...marginAlerts].sort((a, b) => b.marginImpact - a.marginImpact).slice(0, 5);
+
+    return { totalImpact, l7dPct, ytdPct, changePp, top5 };
+  }, [marginAlerts, storeData]);
 
   /* ---------- Aggregate data for current drill level ---------- */
 
@@ -540,94 +566,196 @@ export default function DepartmentsPage() {
         </div>
 
         {/* Margin Drop Alerts */}
-        {!loading && marginAlerts.length > 0 && drillLevel === "category" && (
+        {!loading && marginAlerts.length > 0 && drillLevel === "category" && !showAlertDetail && (
+          <div
+            onClick={() => setShowAlertDetail(true)}
+            style={{
+              padding: "12px 20px",
+              borderBottom: `1px solid ${C.border}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              cursor: "pointer",
+              transition: "background 0.15s",
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.bg; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "14px" }}>&#9888;&#65039;</span>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: C.amber }}>
+                Margin Drop Alerts — Last 7 Days vs YTD
+              </span>
+              <span style={{ fontSize: "11px", color: C.textDim }}>
+                ({marginAlerts.length} products flagged)
+              </span>
+            </div>
+            <span style={{ color: C.accent, fontSize: "12px", fontWeight: 500 }}>
+              View Details ›
+            </span>
+          </div>
+        )}
+
+        {/* Margin Drop Alert Detail View */}
+        {!loading && showAlertDetail && (
           <div style={{ borderBottom: `1px solid ${C.border}` }}>
+            {/* Header with close */}
             <div
-              onClick={() => setAlertsExpanded(!alertsExpanded)}
               style={{
-                padding: "12px 20px",
+                padding: "16px 20px",
+                borderBottom: `1px solid ${C.border}`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                cursor: "pointer",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span style={{ fontSize: "14px" }}>&#9888;&#65039;</span>
-                <span style={{ fontSize: "13px", fontWeight: 600, color: C.amber }}>
+                <span style={{ fontSize: "14px", fontWeight: 700, color: C.amber }}>
                   Margin Drop Alerts — Last 7 Days vs YTD
                 </span>
-                <span style={{ fontSize: "11px", color: C.textDim }}>
-                  ({marginAlerts.length} products)
-                </span>
               </div>
-              <span style={{ color: C.textDim, fontSize: "12px" }}>
-                {alertsExpanded ? "▲ Collapse" : "▼ Expand"}
-              </span>
+              <button
+                onClick={() => setShowAlertDetail(false)}
+                style={{
+                  ...pillBtn(false),
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                &#10005; Close
+              </button>
             </div>
-            {alertsExpanded && (
-              <div style={{ overflowX: "auto", maxHeight: "300px", overflowY: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                  <thead>
-                    <tr>
-                      {[
-                        { label: "#", align: "right" },
-                        { label: "Product", align: "left" },
-                        { label: "Category", align: "left" },
-                        { label: "L7D Margin %", align: "right" },
-                        { label: "YTD Margin %", align: "right" },
-                        { label: "Drop %", align: "right" },
-                        { label: "Units Sold", align: "right" },
-                        { label: "Margin € Impact", align: "right" },
-                      ].map((h) => (
-                        <th key={h.label} style={{ ...thStyle, textAlign: h.align as "left" | "right" }}>
-                          {h.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {marginAlerts.map((a, i) => (
-                      <tr key={i} style={{ background: i % 2 === 0 ? C.bg : C.card }}>
-                        <td style={{ padding: "8px 12px", textAlign: "right", color: C.textDim, fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>
-                          {i + 1}
-                        </td>
-                        <td style={{ padding: "8px 12px", color: C.text, fontWeight: 500, maxWidth: "250px" }}>
-                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {a.name}
-                          </div>
-                        </td>
-                        <td style={{ padding: "8px 12px", color: C.textDim, fontSize: "11px", maxWidth: "180px" }}>
-                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {a.category?.replace(/^[A-Z]\d+\s*-\s*/, "")}
-                          </div>
-                        </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: marginColor(a.l7dMarginPct) }}>
-                          {a.l7dMarginPct.toFixed(1)}%
-                        </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: marginColor(a.ytdMarginPct) }}>
-                          {a.ytdMarginPct.toFixed(1)}%
-                        </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
-                          -{a.dropPct.toFixed(1)}pp
-                        </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
-                          {fmtQty(a.qty)}
-                        </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
-                          -{fmt(Math.abs(a.marginImpact))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+            {/* Summary boxes */}
+            <div style={{ padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ background: C.bg, borderRadius: "8px", padding: "16px 20px", borderLeft: `3px solid ${C.red}` }}>
+                <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "8px" }}>
+                  Estimated Margin Impact vs YTD Average
+                </div>
+                <div style={{ fontSize: "28px", fontWeight: 700, color: C.red, fontFamily: "'JetBrains Mono', monospace" }}>
+                  -{fmt(Math.abs(alertSummary.totalImpact))}
+                </div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginTop: "4px" }}>
+                  across {marginAlerts.length} flagged products
+                </div>
               </div>
-            )}
+              <div style={{ background: C.bg, borderRadius: "8px", padding: "16px 20px", borderLeft: `3px solid ${alertSummary.changePp >= 0 ? C.green : C.red}` }}>
+                <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "8px" }}>
+                  Store Margin — L7D vs YTD
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                  <span style={{ fontSize: "28px", fontWeight: 700, color: alertSummary.changePp >= 0 ? C.green : C.red, fontFamily: "'JetBrains Mono', monospace" }}>
+                    {alertSummary.changePp >= 0 ? "▲" : "▼"} {Math.abs(alertSummary.changePp).toFixed(2)}pp
+                  </span>
+                </div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginTop: "4px" }}>
+                  L7D: {alertSummary.l7dPct.toFixed(2)}% — YTD: {alertSummary.ytdPct.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+
+            {/* Top 5 most impacted products */}
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.06em", color: C.textDim, textTransform: "uppercase", marginBottom: "12px" }}>
+                Top 5 Most Impacted Products
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "10px" }}>
+                {alertSummary.top5.map((a, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: C.bg,
+                      borderRadius: "8px",
+                      padding: "12px 14px",
+                      border: `1px solid ${C.border}`,
+                      borderTop: `2px solid ${C.red}`,
+                    }}
+                  >
+                    <div style={{ fontSize: "11px", color: C.text, fontWeight: 500, marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {a.name}
+                    </div>
+                    <div style={{ fontSize: "11px", color: C.textDim, fontFamily: "'JetBrains Mono', monospace", marginBottom: "2px" }}>
+                      {a.lvCode}
+                    </div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, color: C.red, fontFamily: "'JetBrains Mono', monospace", marginTop: "6px" }}>
+                      -{fmt(Math.abs(a.marginImpact))}
+                    </div>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginTop: "4px" }}>
+                      {a.ytdMarginPct.toFixed(1)}% → {a.l7dMarginPct.toFixed(1)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Full alerts table */}
+            <div style={{ overflowX: "auto", maxHeight: "500px", overflowY: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <thead>
+                  <tr>
+                    {[
+                      { label: "#", align: "right" },
+                      { label: "Product", align: "left" },
+                      { label: "LV Code", align: "left" },
+                      { label: "Category", align: "left" },
+                      { label: "YTD Margin %", align: "right" },
+                      { label: "L7D Margin %", align: "right" },
+                      { label: "Drop", align: "right" },
+                      { label: "Units Sold", align: "right" },
+                      { label: "Margin € Impact", align: "right" },
+                    ].map((h) => (
+                      <th key={h.label} style={{ ...thStyle, textAlign: h.align as "left" | "right" }}>
+                        {h.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {marginAlerts.map((a, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? C.bg : C.card }}>
+                      <td style={{ padding: "8px 12px", textAlign: "right", color: C.textDim, fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>
+                        {i + 1}
+                      </td>
+                      <td style={{ padding: "8px 12px", color: C.text, fontWeight: 500, maxWidth: "250px" }}>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {a.name}
+                        </div>
+                      </td>
+                      <td style={{ padding: "8px 12px", color: C.textDim, fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>
+                        {a.lvCode}
+                      </td>
+                      <td style={{ padding: "8px 12px", color: C.textDim, fontSize: "11px", maxWidth: "180px" }}>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {a.category?.replace(/^[A-Z]\d+\s*-\s*/, "")}
+                        </div>
+                      </td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: marginColor(a.ytdMarginPct) }}>
+                        {a.ytdMarginPct.toFixed(1)}%
+                      </td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: marginColor(a.l7dMarginPct) }}>
+                        {a.l7dMarginPct.toFixed(1)}%
+                      </td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
+                        -{a.dropPct.toFixed(1)}pp
+                      </td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+                        {fmtQty(a.qty)}
+                      </td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
+                        -{fmt(Math.abs(a.marginImpact))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
-        {/* Main table */}
-        {loading ? (
+        {/* Main table (hidden when alert detail is open) */}
+        {showAlertDetail ? null : loading ? (
           <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>
             Loading departments...
           </div>
