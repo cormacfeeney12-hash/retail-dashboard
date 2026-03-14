@@ -47,7 +47,7 @@ interface Alert {
   impact: number;
 }
 
-type Comparison = "yd_ytd" | "l7d_ytd" | "yd_ly";
+export type Comparison = "yd_ytd" | "l7d_ytd" | "yd_ly";
 
 const COMPARISONS: { key: Comparison; label: string }[] = [
   { key: "yd_ytd", label: "Yesterday vs YTD" },
@@ -144,11 +144,11 @@ function getKeys(comp: Comparison) {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function MarginAlertsPage() {
+export default function MarginAlertsPage({ defaultComparison }: { defaultComparison?: Comparison } = {}) {
   const [rawData, setRawData] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const { store, setStore, themeColor } = useStore();
-  const [comparison, setComparison] = useState<Comparison>("l7d_ytd");
+  const [comparison, setComparison] = useState<Comparison>(defaultComparison ?? "l7d_ytd");
 
   const thStyle: React.CSSProperties = { ...thStyleBase, borderBottom: `2px solid ${themeColor}` };
 

@@ -184,6 +184,24 @@ export function DashboardNav() {
             </button>
           );
         })}
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => router.push("/dashboard/presentation")}
+          style={{
+            padding: "10px 16px",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            fontSize: "13px",
+            fontWeight: 400,
+            color: C.textDim,
+            whiteSpace: "nowrap",
+            transition: "all 0.15s",
+          }}
+          title="Presentation mode"
+        >
+          ▶ Present
+        </button>
       </div>
     </div>
   );
