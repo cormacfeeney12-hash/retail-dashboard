@@ -48,7 +48,7 @@ interface PriceCheck {
   category: string | null;
 }
 
-type StoreFilter = "2064" | "2056";
+type StoreFilter = "2064" | "2056" | "both";
 
 /* ───── helpers ───── */
 
@@ -108,6 +108,9 @@ export default function PriceTrackerPage() {
   const [selected, setSelected] = useState<ProductResult | null>(null);
   const [cpuData, setCpuData] = useState<CpuRow | null>(null);
 
+  // Other store's data (for "both" mode)
+  const [otherStoreProduct, setOtherStoreProduct] = useState<ProductResult | null>(null);
+
   // Competitor input
   const [competitorName, setCompetitorName] = useState("");
   const [competitorPrice, setCompetitorPrice] = useState("");
@@ -157,18 +160,32 @@ export default function PriceTrackerPage() {
       const cols = "name,lv_code,category,subcategory,store_number,yd_margin_pct,l7d_margin_pct,ytd_margin_pct,yd_qty,l7d_qty,ytd_qty,yd_sales,l7d_sales,ytd_sales,yd_margin,l7d_margin,ytd_margin";
 
       // For name: each word must appear (AND logic via multiple ILIKE conditions)
-      const nameConditions = words.map((_, i) => `name ILIKE $${i + 2}`).join(" AND ");
-      const nameParams: unknown[] = [store, ...words.map((w) => `%${w}%`)];
-      const { data: nameData } = await rds.query<ProductResult>(
-        `SELECT ${cols} FROM top_sellers WHERE store_number = $1 AND ${nameConditions} LIMIT 15`,
-        nameParams
-      );
+      let nameData: ProductResult[] | null;
+      let codeData: ProductResult[] | null;
 
-      // For lv_code: simple match on full query
-      const { data: codeData } = await rds.query<ProductResult>(
-        `SELECT ${cols} FROM top_sellers WHERE store_number = $1 AND lv_code ILIKE $2 LIMIT 5`,
-        [store, `%${query.trim()}%`]
-      );
+      if (store === "both") {
+        const nameConditions = words.map((_, i) => `name ILIKE $${i + 1}`).join(" AND ");
+        const nameParams: unknown[] = words.map((w) => `%${w}%`);
+        ({ data: nameData } = await rds.query<ProductResult>(
+          `SELECT ${cols} FROM top_sellers WHERE ${nameConditions} LIMIT 30`,
+          nameParams
+        ));
+        ({ data: codeData } = await rds.query<ProductResult>(
+          `SELECT ${cols} FROM top_sellers WHERE lv_code ILIKE $1 LIMIT 10`,
+          [`%${query.trim()}%`]
+        ));
+      } else {
+        const nameConditions = words.map((_, i) => `name ILIKE $${i + 2}`).join(" AND ");
+        const nameParams: unknown[] = [store, ...words.map((w) => `%${w}%`)];
+        ({ data: nameData } = await rds.query<ProductResult>(
+          `SELECT ${cols} FROM top_sellers WHERE store_number = $1 AND ${nameConditions} LIMIT 15`,
+          nameParams
+        ));
+        ({ data: codeData } = await rds.query<ProductResult>(
+          `SELECT ${cols} FROM top_sellers WHERE store_number = $1 AND lv_code ILIKE $2 LIMIT 5`,
+          [store, `%${query.trim()}%`]
+        ));
+      }
 
       // Merge results, deduplicate by lv_code
       const seen = new Set<string>();
@@ -195,6 +212,7 @@ export default function PriceTrackerPage() {
     setShowDropdown(false);
     setQuery(product.name);
     setSaved(false);
+    setOtherStoreProduct(null);
 
     // Fetch CPU data
     const { data } = await rds.query<CpuRow>(
@@ -220,6 +238,17 @@ export default function PriceTrackerPage() {
       } else {
         setCpuData(null);
       }
+    }
+
+    // When in "both" mode, fetch the same product from the other store
+    if (store === "both") {
+      const otherStore = product.store_number === "2064" ? "2056" : "2064";
+      const cols = "name,lv_code,category,subcategory,store_number,yd_margin_pct,l7d_margin_pct,ytd_margin_pct,yd_qty,l7d_qty,ytd_qty,yd_sales,l7d_sales,ytd_sales,yd_margin,l7d_margin,ytd_margin";
+      const { data: otherData } = await rds.query<ProductResult>(
+        `SELECT ${cols} FROM top_sellers WHERE lv_code = $1 AND store_number = $2 LIMIT 1`,
+        [product.lv_code, otherStore]
+      );
+      setOtherStoreProduct(otherData?.[0] ?? null);
     }
   };
 
@@ -292,7 +321,7 @@ export default function PriceTrackerPage() {
       const { error } = await rds.insert("price_checks", {
         product_name: selected.name,
         lv_code: selected.lv_code,
-        store_number: store,
+        store_number: selected.store_number,
         competitor_name: competitorName.trim(),
         our_price: rsp,
         their_price: theirPrice,
@@ -315,6 +344,7 @@ export default function PriceTrackerPage() {
     setQuery("");
     setSelected(null);
     setCpuData(null);
+    setOtherStoreProduct(null);
     setCompetitorName("");
     setCompetitorPrice("");
     setPhotoFile("");
@@ -334,6 +364,7 @@ export default function PriceTrackerPage() {
           [
             { key: "2064" as StoreFilter, label: "Store 2064" },
             { key: "2056" as StoreFilter, label: "Store 2056" },
+            { key: "both" as StoreFilter, label: "Both Stores" },
           ] as const
         ).map((s) => (
           <button key={s.key} onClick={() => { setStore(s.key); reset(); }} style={pillBtn(store === s.key)}>
@@ -418,6 +449,11 @@ export default function PriceTrackerPage() {
                   <span style={{ fontWeight: 600 }}>{r.name}</span>
                   <span style={{ color: C.textDim, marginLeft: "8px", fontSize: "12px" }}>
                     {r.lv_code} · {r.category}
+                    {store === "both" && (
+                      <span style={{ color: C.accent, marginLeft: "6px", fontWeight: 600 }}>
+                        Store {r.store_number}
+                      </span>
+                    )}
                   </span>
                 </button>
               ))}
@@ -432,7 +468,14 @@ export default function PriceTrackerPage() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "16px" }}>
               <div>
                 <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Product Name</div>
-                <div style={{ fontSize: "14px", fontWeight: 600, color: C.text }}>{selected.name}</div>
+                <div style={{ fontSize: "14px", fontWeight: 600, color: C.text }}>
+                  {selected.name}
+                  {store === "both" && (
+                    <span style={{ color: C.accent, fontSize: "12px", marginLeft: "8px", fontWeight: 500 }}>
+                      Store {selected.store_number}
+                    </span>
+                  )}
+                </div>
               </div>
               <div>
                 <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Current Margin %</div>
@@ -475,6 +518,54 @@ export default function PriceTrackerPage() {
                 </div>
               </div>
             </div>
+
+            {/* Other store comparison (both mode) */}
+            {store === "both" && otherStoreProduct && (() => {
+              const otherSales = num(otherStoreProduct.l7d_sales) || num(otherStoreProduct.yd_sales);
+              const otherQty = num(otherStoreProduct.l7d_qty) || num(otherStoreProduct.yd_qty);
+              const otherMarginPct = normPct(otherStoreProduct.l7d_margin_pct ?? otherStoreProduct.yd_margin_pct);
+              const otherRsp = otherQty > 0 ? otherSales / otherQty : 0;
+              return (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "16px",
+                    background: C.bg,
+                    borderRadius: "8px",
+                    border: `1px solid ${C.border}`,
+                  }}
+                >
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "12px" }}>
+                    Store {otherStoreProduct.store_number} — Same Product
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+                    <div>
+                      <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>RSP</div>
+                      <div style={{ fontSize: "16px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+                        {otherRsp > 0 ? fmt(otherRsp) : "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Margin %</div>
+                      <div style={{ fontSize: "16px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: marginColor(otherMarginPct) }}>
+                        {otherMarginPct.toFixed(2)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>L7D Sales</div>
+                      <div style={{ fontSize: "16px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+                        {fmt(otherSales)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            {store === "both" && !otherStoreProduct && selected && (
+              <div style={{ marginTop: "12px", fontSize: "12px", color: C.textMuted, fontStyle: "italic" }}>
+                Not stocked in the other store
+              </div>
+            )}
           </div>
         )}
       </div>

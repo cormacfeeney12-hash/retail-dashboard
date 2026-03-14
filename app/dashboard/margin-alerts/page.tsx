@@ -37,6 +37,7 @@ interface Alert {
   lvCode: string;
   category: string;
   subcategory: string;
+  storeNumber: string;
   currentPct: number;
   comparisonPct: number;
   dropPp: number;
@@ -195,6 +196,7 @@ export default function MarginAlertsPage() {
           lvCode: r.lv_code,
           category: r.category,
           subcategory: r.subcategory,
+          storeNumber: r.store_number,
           currentPct: curPct,
           comparisonPct: cmpPct,
           dropPp,
@@ -433,6 +435,7 @@ export default function MarginAlertsPage() {
                 <tr>
                   {[
                     { label: "#", align: "right" },
+                    ...(store === "both" ? [{ label: "Store", align: "left" as const }] : []),
                     { label: "Product Name", align: "left" },
                     { label: "LV Code", align: "left" },
                     { label: "Category", align: "left" },
@@ -452,16 +455,21 @@ export default function MarginAlertsPage() {
               <tbody>
                 {alerts.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={{ textAlign: "center", padding: "40px", color: C.textDim }}>
+                    <td colSpan={store === "both" ? 11 : 10} style={{ textAlign: "center", padding: "40px", color: C.textDim }}>
                       No products flagged for this comparison
                     </td>
                   </tr>
                 ) : (
                   alerts.map((a, i) => (
-                    <tr key={a.lvCode + i} style={{ background: i % 2 === 0 ? C.bg : C.card }}>
+                    <tr key={a.lvCode + a.storeNumber + i} style={{ background: i % 2 === 0 ? C.bg : C.card }}>
                       <td style={{ padding: "10px 12px", textAlign: "right", color: C.textDim, fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>
                         {i + 1}
                       </td>
+                      {store === "both" && (
+                        <td style={{ padding: "10px 12px", color: C.accent, fontSize: "12px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
+                          {a.storeNumber}
+                        </td>
+                      )}
                       <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500, maxWidth: "250px" }}>
                         <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {a.name}
