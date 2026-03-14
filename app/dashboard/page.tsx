@@ -8,10 +8,9 @@ import { AiChat } from "@/components/AiChat";
 import { CpuAlerts } from "@/components/CpuAlerts";
 import { C, fmt, fmtK } from "@/lib/utils";
 import { STORE_LABELS, STORE_COLORS } from "@/components/DashboardNav";
+import { useStore, type StoreFilter } from "@/contexts/StoreContext";
 
 const { departments } = SAMPLE_DATA;
-
-type StoreFilter = "2064" | "2056" | "both";
 
 interface TopSellerRow {
   store_number: string;
@@ -33,8 +32,8 @@ const num = (v: unknown): number => {
   return 0;
 };
 
-const pillBtn = (active: boolean, color?: string): React.CSSProperties => {
-  const c = color && active ? color : active ? C.accent : undefined;
+const pillBtn = (active: boolean, color?: string, theme?: string): React.CSSProperties => {
+  const c = color && active ? color : active ? (theme ?? C.accent) : undefined;
   return {
     padding: "5px 12px",
     borderRadius: "6px",
@@ -51,7 +50,7 @@ const pillBtn = (active: boolean, color?: string): React.CSSProperties => {
 export default function OverviewPage() {
   const [allRows, setAllRows] = useState<TopSellerRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [store, setStore] = useState<StoreFilter>("2064");
+  const { store, setStore, themeColor } = useStore();
 
   useEffect(() => {
     async function load() {
@@ -139,7 +138,7 @@ export default function OverviewPage() {
             { key: "both" as StoreFilter, label: STORE_LABELS["both"] },
           ] as const
         ).map((s) => (
-          <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key, STORE_COLORS[s.key])}>
+          <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key, STORE_COLORS[s.key], themeColor)}>
             {s.label}
           </button>
         ))}
@@ -160,7 +159,7 @@ export default function OverviewPage() {
             background: C.card,
             borderRadius: "10px",
             padding: "28px 28px",
-            borderTop: `2px solid ${C.accent}`,
+            borderTop: `2px solid ${themeColor}`,
           }}
         >
           <div
@@ -217,7 +216,7 @@ export default function OverviewPage() {
             background: C.card,
             borderRadius: "10px",
             padding: "28px 28px",
-            borderTop: `2px solid ${C.accent}`,
+            borderTop: `2px solid ${themeColor}`,
           }}
         >
           <div
@@ -381,7 +380,7 @@ export default function OverviewPage() {
                         style={{
                           height: "100%",
                           width: `${(cat.l7d_sales / maxSales) * 100}%`,
-                          background: `${C.accent}88`,
+                          background: `${themeColor}88`,
                           borderRadius: "4px",
                         }}
                       />

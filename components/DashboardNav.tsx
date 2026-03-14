@@ -2,24 +2,16 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { C } from "@/lib/utils";
+import { useStore } from "@/contexts/StoreContext";
 
 const NAV_ITEMS = [
   { label: "Overview",        path: "/dashboard" },
   { label: "Margin Alerts",   path: "/dashboard/margin-alerts" },
-  { label: "⏰ Trading Hours", path: "/dashboard/trading" },
-  { label: "🌦️ Weather",      path: "/dashboard/weather" },
-  { label: "☕ F&H Coffee",   path: "/dashboard/coffee" },
   { label: "Departments",     path: "/dashboard/departments" },
   { label: "Top Sellers",     path: "/dashboard/products" },
   { label: "Price Tracker",   path: "/dashboard/price-tracker" },
   { label: "Benchmark",       path: "/dashboard/benchmark" },
 ];
-
-const ACCENT: Record<string, string> = {
-  "/dashboard/trading": C.cyan,
-  "/dashboard/weather": "#38bdf8",
-  "/dashboard/coffee":  C.coffee,
-};
 
 /* ── Store name mapping ── */
 export const STORE_LABELS: Record<string, string> = {
@@ -30,8 +22,8 @@ export const STORE_LABELS: Record<string, string> = {
 };
 
 export const STORE_COLORS: Record<string, string> = {
-  "2064": "#3b82f6",    // blue
-  "2056": "#22c55e",    // green
+  "2064": "#0066CC",
+  "2056": "#00A651",
 };
 
 /* ── Dynamic week/date ── */
@@ -40,7 +32,6 @@ function getWeekInfo() {
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  // ISO week number
   const d = new Date(Date.UTC(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate()));
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -57,11 +48,8 @@ function getWeekInfo() {
 function CentraLogo() {
   return (
     <svg width="48" height="48" viewBox="0 0 100 100" style={{ flexShrink: 0 }}>
-      {/* Yellow outer ring */}
       <circle cx="50" cy="50" r="48" fill="#f5c518" />
-      {/* Teal inner circle */}
       <circle cx="50" cy="50" r="42" fill="#008b8b" />
-      {/* Text */}
       <text x="50" y="30" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="700" fontFamily="Arial, sans-serif">
         {"FEENEY'S"}
       </text>
@@ -82,6 +70,7 @@ export function DashboardNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { weekNo, dateStr } = getWeekInfo();
+  const { themeColor } = useStore();
 
   const isActive = (path: string) => {
     if (path === "/dashboard") return pathname === "/dashboard";
@@ -167,7 +156,7 @@ export function DashboardNav() {
                 fontWeight: 600,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
-                color: C.accent,
+                color: themeColor,
                 marginBottom: "2px",
               }}
             >
@@ -199,7 +188,6 @@ export function DashboardNav() {
       <div style={{ display: "flex", gap: "2px", overflowX: "auto", padding: "0 28px" }}>
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.path);
-          const accent = ACCENT[item.path] ?? C.accent;
           return (
             <button
               key={item.path}
@@ -208,7 +196,7 @@ export function DashboardNav() {
                 padding: "10px 16px",
                 background: active ? C.card : "transparent",
                 border: "none",
-                borderBottom: active ? `2px solid ${accent}` : "2px solid transparent",
+                borderBottom: active ? `2px solid ${themeColor}` : "2px solid transparent",
                 cursor: "pointer",
                 fontSize: "13px",
                 fontWeight: active ? 600 : 400,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const s3 = new S3Client({
@@ -11,6 +11,20 @@ const s3 = new S3Client({
 });
 
 const BUCKET = "store-margin-tool-data";
+
+export async function GET(req: NextRequest) {
+  try {
+    const key = req.nextUrl.searchParams.get("key");
+    if (!key) return NextResponse.json({ error: "Missing key" }, { status: 400 });
+
+    const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+    const presignedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
+    return NextResponse.json({ url: presignedUrl });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {

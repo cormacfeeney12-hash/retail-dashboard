@@ -6,6 +6,7 @@ import { SAMPLE_DATA } from "@/lib/sample-data";
 import { AiChat } from "@/components/AiChat";
 import { C, fmt } from "@/lib/utils";
 import { STORE_LABELS, STORE_COLORS } from "@/components/DashboardNav";
+import { useStore, type StoreFilter } from "@/contexts/StoreContext";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -58,7 +59,6 @@ interface MarginAlert {
 }
 
 type Period = "yd" | "l7d" | "ytd" | "ly";
-type StoreFilter = "2064" | "2056" | "both";
 type DrillLevel = "category" | "subcategory" | "product";
 
 const PERIODS: { key: Period; label: string }[] = [
@@ -85,8 +85,8 @@ const marginColor = (pct: number) => {
   return C.red;
 };
 
-const pillBtn = (active: boolean, color?: string): React.CSSProperties => {
-  const c = color && active ? color : active ? C.accent : undefined;
+const pillBtn = (active: boolean, color?: string, theme?: string): React.CSSProperties => {
+  const c = color && active ? color : active ? (theme ?? C.accent) : undefined;
   return {
     padding: "5px 12px",
     borderRadius: "6px",
@@ -100,14 +100,13 @@ const pillBtn = (active: boolean, color?: string): React.CSSProperties => {
   };
 };
 
-const thStyle: React.CSSProperties = {
+const thStyleBase: Omit<React.CSSProperties, "borderBottom"> = {
   padding: "10px 12px",
   color: C.textDim,
   fontWeight: 600,
   fontSize: "11px",
   letterSpacing: "0.06em",
   textTransform: "uppercase",
-  borderBottom: `1px solid ${C.border}`,
   background: C.card,
   position: "sticky",
   top: 0,
@@ -122,8 +121,10 @@ const thStyle: React.CSSProperties = {
 export default function DepartmentsPage() {
   const [rawData, setRawData] = useState<TopSellerRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [store, setStore] = useState<StoreFilter>("2064");
+  const { store, setStore, themeColor } = useStore();
   const [period, setPeriod] = useState<Period>("l7d");
+
+  const thStyle: React.CSSProperties = { ...thStyleBase, borderBottom: `2px solid ${themeColor}` };
 
   // Drill-down state
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -483,7 +484,7 @@ export default function DepartmentsPage() {
                   { key: "both" as StoreFilter, label: STORE_LABELS["both"] },
                 ] as const
               ).map((s) => (
-                <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key, STORE_COLORS[s.key])}>
+                <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key, STORE_COLORS[s.key], themeColor)}>
                   {s.label}
                 </button>
               ))}
@@ -494,7 +495,7 @@ export default function DepartmentsPage() {
             {/* Period toggle */}
             <div style={{ display: "flex", gap: "2px" }}>
               {PERIODS.map((p) => (
-                <button key={p.key} onClick={() => setPeriod(p.key)} style={pillBtn(period === p.key)}>
+                <button key={p.key} onClick={() => setPeriod(p.key)} style={pillBtn(period === p.key, undefined, themeColor)}>
                   {p.label}
                 </button>
               ))}
@@ -531,7 +532,7 @@ export default function DepartmentsPage() {
           }}
         >
           {[
-            { label: "Total Sales", value: fmt(totals.sales), accent: C.accent },
+            { label: "Total Sales", value: fmt(totals.sales), accent: themeColor },
             { label: "Margin %", value: `${totals.marginPct.toFixed(1)}%`, accent: marginColor(totals.marginPct), color: marginColor(totals.marginPct) },
             { label: "Total Qty", value: fmtQty(totals.qty), accent: C.cyan },
             { label: "Total Margin €", value: fmt(totals.margin), accent: C.amber },
