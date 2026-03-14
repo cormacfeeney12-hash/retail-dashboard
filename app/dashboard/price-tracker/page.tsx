@@ -805,58 +805,13 @@ export default function PriceTrackerPage() {
           Price Check History
         </h3>
 
-        {!tableExists && (
-          <div
-            style={{
-              padding: "16px",
-              borderRadius: "8px",
-              background: `${C.amber}15`,
-              border: `1px solid ${C.amber}44`,
-              color: C.amber,
-              fontSize: "13px",
-              marginBottom: "16px",
-            }}
-          >
-            The <strong>price_checks</strong> table does not exist yet. Create it in the Supabase SQL Editor:
-            <pre
-              style={{
-                marginTop: "8px",
-                padding: "12px",
-                borderRadius: "6px",
-                background: C.bg,
-                color: C.text,
-                fontSize: "11px",
-                overflowX: "auto",
-              }}
-            >
-{`CREATE TABLE IF NOT EXISTS price_checks (
-  id bigint generated always as identity primary key,
-  created_at timestamptz default now(),
-  product_name text not null,
-  lv_code text,
-  store_number text,
-  competitor_name text not null,
-  our_price numeric,
-  their_price numeric not null,
-  our_cost numeric,
-  our_margin_pct numeric,
-  their_margin_pct numeric,
-  margin_impact numeric,
-  recommendation text,
-  category text,
-  photo_url text
-);`}
-            </pre>
-          </div>
-        )}
-
         {historyLoading ? (
           <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>
             Loading...
           </div>
-        ) : history.length === 0 && tableExists ? (
-          <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>
-            No price checks recorded yet. Search for a product above to get started.
+        ) : !tableExists || history.length === 0 ? (
+          <div style={{ color: C.textMuted, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>
+            No price checks yet
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
