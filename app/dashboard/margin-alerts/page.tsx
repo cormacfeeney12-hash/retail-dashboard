@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { rds } from "@/lib/rds";
 import { C, fmt } from "@/lib/utils";
+import { STORE_LABELS, STORE_COLORS } from "@/components/DashboardNav";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -71,17 +72,20 @@ const marginColor = (pct: number) => {
   return C.red;
 };
 
-const pillBtn = (active: boolean): React.CSSProperties => ({
-  padding: "5px 12px",
-  borderRadius: "6px",
-  border: `1px solid ${active ? C.accent : C.border}`,
-  background: active ? `${C.accent}22` : "transparent",
-  color: active ? C.accent : C.textDim,
-  cursor: "pointer",
-  fontSize: "12px",
-  fontWeight: active ? 600 : 400,
-  transition: "all 0.15s",
-});
+const pillBtn = (active: boolean, color?: string): React.CSSProperties => {
+  const c = color && active ? color : active ? C.accent : undefined;
+  return {
+    padding: "5px 12px",
+    borderRadius: "6px",
+    border: `1px solid ${c ?? C.border}`,
+    background: c ? `${c}22` : "transparent",
+    color: c ?? C.textDim,
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: active ? 600 : 400,
+    transition: "all 0.15s",
+  };
+};
 
 const thStyle: React.CSSProperties = {
   padding: "10px 12px",
@@ -301,12 +305,12 @@ export default function MarginAlertsPage() {
           <div style={{ display: "flex", gap: "2px" }}>
             {(
               [
-                { key: "2064" as StoreFilter, label: "2064" },
-                { key: "2056" as StoreFilter, label: "2056" },
-                { key: "both" as StoreFilter, label: "Both Stores" },
+                { key: "2064" as StoreFilter, label: STORE_LABELS["2064"] },
+                { key: "2056" as StoreFilter, label: STORE_LABELS["2056"] },
+                { key: "both" as StoreFilter, label: STORE_LABELS["both"] },
               ] as const
             ).map((s) => (
-              <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key)}>
+              <button key={s.key} onClick={() => setStore(s.key)} style={pillBtn(store === s.key, STORE_COLORS[s.key])}>
                 {s.label}
               </button>
             ))}
@@ -467,7 +471,7 @@ export default function MarginAlertsPage() {
                       </td>
                       {store === "both" && (
                         <td style={{ padding: "10px 12px", color: C.accent, fontSize: "12px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
-                          {a.storeNumber}
+                          {STORE_LABELS[a.storeNumber] ?? a.storeNumber}
                         </td>
                       )}
                       <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500, maxWidth: "250px" }}>
