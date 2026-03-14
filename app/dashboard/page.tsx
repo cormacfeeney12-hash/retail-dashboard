@@ -26,7 +26,11 @@ interface TopSellerRow {
   category_code: string;
 }
 
-const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+const num = (v: unknown): number => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  return 0;
+};
 
 const pillBtn = (active: boolean): React.CSSProperties => ({
   padding: "5px 12px",

@@ -52,7 +52,11 @@ type StoreFilter = "2064" | "2056";
 
 /* ───── helpers ───── */
 
-const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+const num = (v: unknown): number => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  return 0;
+};
 
 /** Normalise margin_pct: if stored as decimal (0.28) → 28, if already % (28) → 28 */
 const normPct = (v: number | null | undefined): number => {

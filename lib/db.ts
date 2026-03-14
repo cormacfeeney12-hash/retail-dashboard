@@ -1,4 +1,8 @@
-import { Pool } from "pg";
+import { Pool, types } from "pg";
+
+// pg returns numeric/bigint columns as strings by default — parse them as JS numbers
+types.setTypeParser(20, (val) => parseInt(val, 10));   // int8 (bigint)
+types.setTypeParser(1700, (val) => parseFloat(val));   // numeric / decimal
 
 const pool = new Pool({
   connectionString:

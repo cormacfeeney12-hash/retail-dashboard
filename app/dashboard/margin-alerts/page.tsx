@@ -57,7 +57,11 @@ const COMPARISONS: { key: Comparison; label: string }[] = [
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+const num = (v: unknown): number => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  return 0;
+};
 const fmtQty = (v: number) => v.toLocaleString("en-IE");
 
 const marginColor = (pct: number) => {

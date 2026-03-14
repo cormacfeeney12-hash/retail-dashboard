@@ -59,7 +59,11 @@ const SORT_OPTIONS: { key: SortField; label: string }[] = [
 const col = (period: Period, metric: "sales" | "qty" | "margin" | "margin_pct") =>
   `${period}_${metric}` as keyof TopSeller;
 
-const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+const num = (v: unknown): number => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  return 0;
+};
 
 const fmtQty = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("en-IE"));
 
