@@ -99,7 +99,7 @@ const PRIORITY_OPTIONS = [
   { value: "low", label: "Low", color: "#22c55e" },
 ];
 
-type ActiveTab = "price-check" | "ideas" | "photos";
+type ActiveTab = "price-check" | "ideas-photos";
 
 /* ───── helpers ───── */
 
@@ -249,7 +249,7 @@ export default function PriceTrackerPage() {
   }, [loadHistory, loadIdeas]);
 
   useEffect(() => {
-    if (activeTab === "photos") loadPhotos();
+    if (activeTab === "ideas-photos") loadPhotos();
   }, [activeTab, loadPhotos]);
 
   /* ── submit idea ── */
@@ -557,8 +557,7 @@ export default function PriceTrackerPage() {
       {/* Tab bar */}
       <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: `1px solid ${C.border}` }}>
         <button onClick={() => setActiveTab("price-check")} style={tabBtn("price-check")}>Price Check</button>
-        <button onClick={() => setActiveTab("ideas")} style={tabBtn("ideas")}>Ideas</button>
-        <button onClick={() => setActiveTab("photos")} style={tabBtn("photos")}>Photos</button>
+        <button onClick={() => setActiveTab("ideas-photos")} style={tabBtn("ideas-photos")}>Ideas &amp; Photos</button>
       </div>
 
       {/* ═══════════════════════════ PRICE CHECK TAB ═══════════════════════════ */}
@@ -861,244 +860,241 @@ export default function PriceTrackerPage() {
         </>
       )}
 
-      {/* ═══════════════════════════ IDEAS TAB ═══════════════════════════ */}
-      {activeTab === "ideas" && (
-        <div style={{ background: C.card, borderRadius: "10px", padding: "24px", border: `1px solid ${C.border}`, borderTop: `2px solid ${themeColor}` }}>
-          <h3 style={sectionHeading}>Ideas</h3>
+      {/* ═══════════════════════════ IDEAS & PHOTOS TAB ═══════════════════════════ */}
+      {activeTab === "ideas-photos" && (
+        <>
+          {/* ─── Ideas Section ─── */}
+          <div style={{ background: C.card, borderRadius: "10px", padding: "24px", border: `1px solid ${C.border}`, borderTop: `2px solid ${themeColor}`, marginBottom: "16px" }}>
+            <h3 style={sectionHeading}>Ideas</h3>
 
-          {/* Add idea form */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "12px" }}>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Category</div>
-              <select value={ideaCategory} onChange={(e) => setIdeaCategory(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-                {IDEA_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Description</div>
-              <input type="text" placeholder="Describe your idea..." value={ideaDesc} onChange={(e) => setIdeaDesc(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitIdea()} style={inputStyle} />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "12px", alignItems: "end", marginBottom: "20px" }}>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Store</div>
-              <div style={{ display: "flex", gap: "2px" }}>
-                {(["2064", "2056", "both"] as const).map((s) => (
-                  <button key={s} onClick={() => setIdeaStore(s)} style={pillBtn(ideaStore === s, STORE_COLORS[s], themeColor)}>
-                    {STORE_LABELS[s]}
-                  </button>
-                ))}
+            {/* Add idea form */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "12px" }}>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Category</div>
+                <select value={ideaCategory} onChange={(e) => setIdeaCategory(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+                  {IDEA_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Description</div>
+                <input type="text" placeholder="Describe your idea..." value={ideaDesc} onChange={(e) => setIdeaDesc(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitIdea()} style={inputStyle} />
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Priority</div>
-              <div style={{ display: "flex", gap: "2px" }}>
-                {PRIORITY_OPTIONS.map((p) => (
-                  <button key={p.value} onClick={() => setIdeaPriority(p.value)} style={pillBtn(ideaPriority === p.value, p.color)}>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <button
-              onClick={submitIdea}
-              disabled={!ideaDesc.trim() || ideaSaving}
-              style={{
-                padding: "8px 20px", borderRadius: "8px", border: "none", background: themeColor,
-                color: "#fff", fontSize: "13px", fontWeight: 600,
-                cursor: !ideaDesc.trim() || ideaSaving ? "not-allowed" : "pointer",
-                opacity: !ideaDesc.trim() || ideaSaving ? 0.6 : 1, whiteSpace: "nowrap",
-              }}
-            >
-              {ideaSaving ? "Saving..." : "Add Idea"}
-            </button>
-          </div>
-
-          {/* Ideas list */}
-          {ideasLoading ? (
-            <div style={{ color: C.textDim, fontSize: "13px", padding: "30px 0", textAlign: "center" }}>Loading...</div>
-          ) : ideas.length === 0 ? (
-            <div style={{ color: C.textMuted, fontSize: "13px", padding: "30px 0", textAlign: "center" }}>No ideas yet — add one above</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {ideas.map((idea) => {
-                const pColor = PRIORITY_OPTIONS.find((p) => p.value === idea.priority)?.color ?? C.textDim;
-                return (
-                  <div key={idea.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px", background: C.bg, borderRadius: "8px", border: `1px solid ${C.border}`, borderLeft: `3px solid ${pColor}` }}>
-                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: pColor, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "13px", color: C.text, fontWeight: 500 }}>{idea.description}</div>
-                      <div style={{ fontSize: "11px", color: C.textDim, marginTop: "4px" }}>
-                        {idea.category} · {STORE_LABELS[idea.store_number] ?? idea.store_number} · {new Date(idea.created_at).toLocaleDateString("en-IE")}
-                      </div>
-                    </div>
-                    <div style={{ padding: "3px 8px", borderRadius: "4px", background: `${pColor}22`, color: pColor, fontSize: "11px", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
-                      {idea.priority}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════ PHOTOS TAB ═══════════════════════════ */}
-      {activeTab === "photos" && (
-        <div style={{ background: C.card, borderRadius: "10px", padding: "24px", border: `1px solid ${C.border}`, borderTop: `2px solid ${themeColor}` }}>
-          <h3 style={sectionHeading}>Photo Library</h3>
-
-          {/* Upload form */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Store</div>
-              <div style={{ display: "flex", gap: "2px" }}>
-                {(["2064", "2056"] as const).map((s) => (
-                  <button key={s} onClick={() => setPhotoStore(s)} style={pillBtn(photoStore === s, STORE_COLORS[s], themeColor)}>
-                    {STORE_LABELS[s]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Category</div>
-              <select value={photoCat} onChange={(e) => setPhotoCat(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-                {IDEA_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Title / Description</div>
-              <input type="text" placeholder="Photo title..." value={photoTitle} onChange={(e) => setPhotoTitle(e.target.value)} style={inputStyle} />
-            </div>
-            <div style={{ position: "relative" }}>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Link to Product (optional)</div>
-              {photoLinkedProduct ? (
-                <div style={{ ...inputStyle, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ color: C.text, fontSize: "13px" }}>
-                    {photoLinkedProduct.name} <span style={{ color: C.textDim, fontSize: "11px" }}>{photoLinkedProduct.lv_code}</span>
-                  </span>
-                  <button onClick={() => { setPhotoLinkedProduct(null); setPhotoProductQuery(""); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: "14px" }}>&#10005;</button>
+            <div style={{ display: "flex", gap: "12px", alignItems: "end", marginBottom: "20px" }}>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Store</div>
+                <div style={{ display: "flex", gap: "2px" }}>
+                  {(["2064", "2056", "both"] as const).map((s) => (
+                    <button key={s} onClick={() => setIdeaStore(s)} style={pillBtn(ideaStore === s, STORE_COLORS[s], themeColor)}>
+                      {STORE_LABELS[s]}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  <input
-                    type="text"
-                    placeholder="Search product..."
-                    value={photoProductQuery}
-                    onChange={(e) => { setPhotoProductQuery(e.target.value); setPhotoLinkedProduct(null); }}
-                    onFocus={() => photoProductResults.length > 0 && setPhotoShowDropdown(true)}
-                    style={inputStyle}
-                  />
-                  {photoProductSearching && (
-                    <div style={{ position: "absolute", right: "14px", top: "32px", fontSize: "12px", color: C.textDim }}>Searching...</div>
-                  )}
-                  {photoShowDropdown && photoProductResults.length > 0 && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.card, border: `1px solid ${C.border}`, borderRadius: "8px", marginTop: "4px", maxHeight: "200px", overflowY: "auto", zIndex: 100 }}>
-                      {photoProductResults.map((r, i) => (
-                        <button
-                          key={`${r.lv_code}-${i}`}
-                          onClick={() => { setPhotoLinkedProduct({ name: r.name, lv_code: r.lv_code }); setPhotoShowDropdown(false); setPhotoProductQuery(r.name); }}
-                          style={{ display: "block", width: "100%", padding: "8px 14px", border: "none", borderBottom: i < photoProductResults.length - 1 ? `1px solid ${C.border}` : "none", background: "transparent", cursor: "pointer", textAlign: "left", color: C.text, fontSize: "12px" }}
-                        >
-                          <span style={{ fontWeight: 600 }}>{r.name}</span>
-                          <span style={{ color: C.textDim, marginLeft: "6px", fontSize: "11px" }}>{r.lv_code}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Priority</div>
+                <div style={{ display: "flex", gap: "2px" }}>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <button key={p.value} onClick={() => setIdeaPriority(p.value)} style={pillBtn(ideaPriority === p.value, p.color)}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={submitIdea}
+                disabled={!ideaDesc.trim() || ideaSaving}
+                style={{
+                  padding: "8px 20px", borderRadius: "8px", border: "none", background: themeColor,
+                  color: "#fff", fontSize: "13px", fontWeight: 600,
+                  cursor: !ideaDesc.trim() || ideaSaving ? "not-allowed" : "pointer",
+                  opacity: !ideaDesc.trim() || ideaSaving ? 0.6 : 1, whiteSpace: "nowrap",
+                }}
+              >
+                {ideaSaving ? "Saving..." : "Add Idea"}
+              </button>
             </div>
-          </div>
 
-          <div style={{ display: "flex", gap: "12px", alignItems: "end", marginBottom: "24px" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Photo File</div>
-              <label style={{ ...inputStyle, display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", color: photoUploadFile ? C.text : C.textDim }}>
-                <span>{photoUploadFile ? photoUploadFile.name : "Choose photo..."}</span>
-                <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; setPhotoUploadFile(f ?? null); }} />
-              </label>
-            </div>
-            <button
-              onClick={handlePhotoUpload}
-              disabled={!photoUploadFile || !photoTitle.trim() || photoUploading}
-              style={{
-                padding: "10px 24px", borderRadius: "8px", border: "none", background: themeColor,
-                color: "#fff", fontSize: "14px", fontWeight: 600,
-                cursor: !photoUploadFile || !photoTitle.trim() || photoUploading ? "not-allowed" : "pointer",
-                opacity: !photoUploadFile || !photoTitle.trim() || photoUploading ? 0.6 : 1, whiteSpace: "nowrap",
-              }}
-            >
-              {photoUploading ? "Uploading..." : "Upload Photo"}
-            </button>
-          </div>
-
-          {/* Photo gallery */}
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: "20px" }}>
-            <h4 style={{ fontSize: "12px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "16px" }}>
-              Gallery — {STORE_LABELS[photoStore]}
-            </h4>
-            {photosLoading ? (
-              <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>Loading photos...</div>
-            ) : photos.length === 0 ? (
-              <div style={{ color: C.textMuted, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>No photos uploaded yet</div>
+            {/* Ideas list */}
+            {ideasLoading ? (
+              <div style={{ color: C.textDim, fontSize: "13px", padding: "30px 0", textAlign: "center" }}>Loading...</div>
+            ) : ideas.length === 0 ? (
+              <div style={{ color: C.textMuted, fontSize: "13px", padding: "30px 0", textAlign: "center" }}>No ideas yet — add one above</div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "16px" }}>
-                {photos.map((photo) => (
-                  <div key={photo.id} style={{ background: C.bg, borderRadius: "8px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
-                    {/* Thumbnail */}
-                    {photo.url ? (
-                      <div style={{ width: "100%", height: "160px", background: C.card, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <img
-                          src={photo.url}
-                          alt={photo.title}
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                        />
-                      </div>
-                    ) : (
-                      <div style={{ width: "100%", height: "160px", background: C.card, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <span style={{ color: C.textMuted, fontSize: "12px" }}>No preview</span>
-                      </div>
-                    )}
-                    <div style={{ padding: "12px" }}>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: C.text, marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {photo.title}
-                      </div>
-                      <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>
-                        {photo.category}
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{
-                          padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: 600,
-                          background: `${STORE_COLORS[photo.store_number] ?? themeColor}22`,
-                          color: STORE_COLORS[photo.store_number] ?? themeColor,
-                        }}>
-                          {STORE_LABELS[photo.store_number] ?? photo.store_number}
-                        </span>
-                        <span style={{ fontSize: "10px", color: C.textMuted }}>
-                          {new Date(photo.created_at).toLocaleDateString("en-IE")}
-                        </span>
-                      </div>
-                      {photo.product_name && (
-                        <div style={{ fontSize: "11px", color: C.textDim, marginTop: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {photo.product_name} <span style={{ color: C.textMuted }}>{photo.lv_code}</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {ideas.map((idea) => {
+                  const pColor = PRIORITY_OPTIONS.find((p) => p.value === idea.priority)?.color ?? C.textDim;
+                  return (
+                    <div key={idea.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px", background: C.bg, borderRadius: "8px", border: `1px solid ${C.border}`, borderLeft: `3px solid ${pColor}` }}>
+                      <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: pColor, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "13px", color: C.text, fontWeight: 500 }}>{idea.description}</div>
+                        <div style={{ fontSize: "11px", color: C.textDim, marginTop: "4px" }}>
+                          {idea.category} · {STORE_LABELS[idea.store_number] ?? idea.store_number} · {new Date(idea.created_at).toLocaleDateString("en-IE")}
                         </div>
-                      )}
+                      </div>
+                      <div style={{ padding: "3px 8px", borderRadius: "4px", background: `${pColor}22`, color: pColor, fontSize: "11px", fontWeight: 600, textTransform: "uppercase", flexShrink: 0 }}>
+                        {idea.priority}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
-        </div>
+
+          {/* ─── Add Photo Section ─── */}
+          <div style={{ background: C.card, borderRadius: "10px", padding: "24px", border: `1px solid ${C.border}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Store</div>
+                <div style={{ display: "flex", gap: "2px" }}>
+                  {(["2064", "2056"] as const).map((s) => (
+                    <button key={s} onClick={() => setPhotoStore(s)} style={pillBtn(photoStore === s, STORE_COLORS[s], themeColor)}>
+                      {STORE_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Category</div>
+                <select value={photoCat} onChange={(e) => setPhotoCat(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+                  {IDEA_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Title / Description</div>
+                <input type="text" placeholder="Photo title..." value={photoTitle} onChange={(e) => setPhotoTitle(e.target.value)} style={inputStyle} />
+              </div>
+              <div style={{ position: "relative" }}>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Link to Product (optional)</div>
+                {photoLinkedProduct ? (
+                  <div style={{ ...inputStyle, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ color: C.text, fontSize: "13px" }}>
+                      {photoLinkedProduct.name} <span style={{ color: C.textDim, fontSize: "11px" }}>{photoLinkedProduct.lv_code}</span>
+                    </span>
+                    <button onClick={() => { setPhotoLinkedProduct(null); setPhotoProductQuery(""); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: "14px" }}>&#10005;</button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Search product..."
+                      value={photoProductQuery}
+                      onChange={(e) => { setPhotoProductQuery(e.target.value); setPhotoLinkedProduct(null); }}
+                      onFocus={() => photoProductResults.length > 0 && setPhotoShowDropdown(true)}
+                      style={inputStyle}
+                    />
+                    {photoProductSearching && (
+                      <div style={{ position: "absolute", right: "14px", top: "32px", fontSize: "12px", color: C.textDim }}>Searching...</div>
+                    )}
+                    {photoShowDropdown && photoProductResults.length > 0 && (
+                      <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.card, border: `1px solid ${C.border}`, borderRadius: "8px", marginTop: "4px", maxHeight: "200px", overflowY: "auto", zIndex: 100 }}>
+                        {photoProductResults.map((r, i) => (
+                          <button
+                            key={`${r.lv_code}-${i}`}
+                            onClick={() => { setPhotoLinkedProduct({ name: r.name, lv_code: r.lv_code }); setPhotoShowDropdown(false); setPhotoProductQuery(r.name); }}
+                            style={{ display: "block", width: "100%", padding: "8px 14px", border: "none", borderBottom: i < photoProductResults.length - 1 ? `1px solid ${C.border}` : "none", background: "transparent", cursor: "pointer", textAlign: "left", color: C.text, fontSize: "12px" }}
+                          >
+                            <span style={{ fontWeight: 600 }}>{r.name}</span>
+                            <span style={{ color: C.textDim, marginLeft: "6px", fontSize: "11px" }}>{r.lv_code}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", alignItems: "end", marginBottom: "24px" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Photo File</div>
+                <label style={{ ...inputStyle, display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", color: photoUploadFile ? C.text : C.textDim }}>
+                  <span>{photoUploadFile ? photoUploadFile.name : "Choose photo..."}</span>
+                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; setPhotoUploadFile(f ?? null); }} />
+                </label>
+              </div>
+              <button
+                onClick={handlePhotoUpload}
+                disabled={!photoUploadFile || !photoTitle.trim() || photoUploading}
+                style={{
+                  padding: "10px 24px", borderRadius: "8px", border: "none", background: themeColor,
+                  color: "#fff", fontSize: "14px", fontWeight: 600,
+                  cursor: !photoUploadFile || !photoTitle.trim() || photoUploading ? "not-allowed" : "pointer",
+                  opacity: !photoUploadFile || !photoTitle.trim() || photoUploading ? 0.6 : 1, whiteSpace: "nowrap",
+                }}
+              >
+                {photoUploading ? "Uploading..." : "Upload Photo"}
+              </button>
+            </div>
+
+            {/* Photo gallery */}
+            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: "20px" }}>
+              <h4 style={{ fontSize: "12px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "16px" }}>
+                Gallery — {STORE_LABELS[photoStore]}
+              </h4>
+              {photosLoading ? (
+                <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>Loading photos...</div>
+              ) : photos.length === 0 ? (
+                <div style={{ color: C.textMuted, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>No photos uploaded yet</div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "16px" }}>
+                  {photos.map((photo) => (
+                    <div key={photo.id} style={{ background: C.bg, borderRadius: "8px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
+                      {photo.url ? (
+                        <div style={{ width: "100%", height: "160px", background: C.card, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                          <img
+                            src={photo.url}
+                            alt={photo.title}
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{ width: "100%", height: "160px", background: C.card, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <span style={{ color: C.textMuted, fontSize: "12px" }}>No preview</span>
+                        </div>
+                      )}
+                      <div style={{ padding: "12px" }}>
+                        <div style={{ fontSize: "13px", fontWeight: 600, color: C.text, marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {photo.title}
+                        </div>
+                        <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>
+                          {photo.category}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{
+                            padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: 600,
+                            background: `${STORE_COLORS[photo.store_number] ?? themeColor}22`,
+                            color: STORE_COLORS[photo.store_number] ?? themeColor,
+                          }}>
+                            {STORE_LABELS[photo.store_number] ?? photo.store_number}
+                          </span>
+                          <span style={{ fontSize: "10px", color: C.textMuted }}>
+                            {new Date(photo.created_at).toLocaleDateString("en-IE")}
+                          </span>
+                        </div>
+                        {photo.product_name && (
+                          <div style={{ fontSize: "11px", color: C.textDim, marginTop: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {photo.product_name} <span style={{ color: C.textMuted }}>{photo.lv_code}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </>
   );

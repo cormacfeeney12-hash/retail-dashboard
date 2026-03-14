@@ -133,31 +133,6 @@ export function DashboardNav() {
         </div>
       </div>
 
-      {/* ── Feeney's Banner Image ── */}
-      <div
-        style={{
-          width: "100%",
-          display: "flex",
-          justifyContent: "center",
-          overflow: "hidden",
-          lineHeight: 0,
-          padding: "0 20%",
-        }}
-      >
-        <img
-          src="/feeney-banner.png"
-          alt="Feeney's Bar & Shop"
-          style={{
-            width: "100%",
-            height: "105px",
-            objectFit: "cover",
-            objectPosition: "center 20%",
-            display: "block",
-            borderRadius: "4px",
-          }}
-        />
-      </div>
-
       {/* ── Tab nav ── */}
       <div style={{ display: "flex", gap: "2px", overflowX: "auto", padding: "0 28px" }}>
         {NAV_ITEMS.map((item) => {
