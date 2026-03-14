@@ -37,7 +37,7 @@ function getWeekInfo() {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const dateStr = `${days[yesterday.getDay()]} ${yesterday.getDate()} ${months[yesterday.getMonth()]} ${yesterday.getFullYear()}`;
 
@@ -129,10 +129,7 @@ export function DashboardNav() {
           <div style={{ fontWeight: 600, color: C.text, fontSize: "14px" }}>
             Week {weekNo}
           </div>
-          <div>{dateStr}</div>
-          <div style={{ fontSize: "10px", color: C.textMuted, marginTop: "2px", fontStyle: "italic" }}>
-            Data reflects previous trading day
-          </div>
+          <div>Data for: {dateStr}</div>
         </div>
       </div>
 
@@ -140,9 +137,11 @@ export function DashboardNav() {
       <div
         style={{
           width: "100%",
-          height: "70px",
+          display: "flex",
+          justifyContent: "center",
           overflow: "hidden",
           lineHeight: 0,
+          padding: "0 20%",
         }}
       >
         <img
@@ -150,10 +149,11 @@ export function DashboardNav() {
           alt="Feeney's Bar & Shop"
           style={{
             width: "100%",
-            height: "70px",
+            height: "105px",
             objectFit: "cover",
-            objectPosition: "center",
+            objectPosition: "center 20%",
             display: "block",
+            borderRadius: "4px",
           }}
         />
       </div>
