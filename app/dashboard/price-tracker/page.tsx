@@ -14,6 +14,16 @@ interface ProductResult {
   store_number: string;
   yd_margin_pct: number | null;
   l7d_margin_pct: number | null;
+  ytd_margin_pct: number | null;
+  yd_qty: number | null;
+  l7d_qty: number | null;
+  ytd_qty: number | null;
+  yd_sales: number | null;
+  l7d_sales: number | null;
+  ytd_sales: number | null;
+  yd_margin: number | null;
+  l7d_margin: number | null;
+  ytd_margin: number | null;
 }
 
 interface CpuRow {
@@ -100,6 +110,13 @@ export default function PriceTrackerPage() {
     marginImpactPerUnit: number;
     recommendation: string;
     recColor: string;
+    periodImpacts: {
+      label: string;
+      qty: number;
+      totalImpact: number;
+      currentMarginPct: number;
+      newMarginPct: number;
+    }[];
   } | null>(null);
 
   // History
@@ -141,7 +158,7 @@ export default function PriceTrackerPage() {
       setSearching(true);
       const { data, error } = await supabase
         .from("top_sellers")
-        .select("name,lv_code,category,subcategory,store_number,yd_margin_pct,l7d_margin_pct")
+        .select("name,lv_code,category,subcategory,store_number,yd_margin_pct,l7d_margin_pct,ytd_margin_pct,yd_qty,l7d_qty,ytd_qty,yd_sales,l7d_sales,ytd_sales,yd_margin,l7d_margin,ytd_margin")
         .eq("store_number", store)
         .or(`name.ilike.%${query}%,lv_code.ilike.%${query}%`)
         .limit(15);
@@ -208,7 +225,22 @@ export default function PriceTrackerPage() {
       recColor = C.red;
     }
 
-    const result = { theirMarginPct, ourMatchedMarginPct, marginImpactPerUnit, recommendation, recColor };
+    // Period impacts
+    const priceDiff = theirPrice - ourRsp;
+    const periods = [
+      { label: "Yesterday", qty: num(selected.yd_qty), sales: num(selected.yd_sales), margin: num(selected.yd_margin), marginPct: num(selected.yd_margin_pct) * 100 },
+      { label: "Last 7 Days", qty: num(selected.l7d_qty), sales: num(selected.l7d_sales), margin: num(selected.l7d_margin), marginPct: num(selected.l7d_margin_pct) * 100 },
+      { label: "YTD", qty: num(selected.ytd_qty), sales: num(selected.ytd_sales), margin: num(selected.ytd_margin), marginPct: num(selected.ytd_margin_pct) * 100 },
+    ];
+    const periodImpacts = periods.map((p) => {
+      const totalImpact = priceDiff * p.qty;
+      const newSales = p.sales + totalImpact;
+      const newMargin = p.margin + totalImpact;
+      const newMarginPct = newSales !== 0 ? (newMargin / newSales) * 100 : 0;
+      return { label: p.label, qty: p.qty, totalImpact, currentMarginPct: p.marginPct, newMarginPct };
+    });
+
+    const result = { theirMarginPct, ourMatchedMarginPct, marginImpactPerUnit, recommendation, recColor, periodImpacts };
     setCalcResult(result);
 
     // Save to history
@@ -348,44 +380,52 @@ export default function PriceTrackerPage() {
 
         {/* Selected product details */}
         {selected && (
-          <div style={{ marginTop: "20px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Product Name</div>
-              <div style={{ fontSize: "14px", fontWeight: 600, color: C.text }}>{selected.name}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>LV Code</div>
-              <div style={{ fontSize: "14px", fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
-                {selected.lv_code}
+          <div style={{ marginTop: "20px" }}>
+            {/* Top row: Name, Margin %, Category */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "16px" }}>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Product Name</div>
+                <div style={{ fontSize: "14px", fontWeight: 600, color: C.text }}>{selected.name}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Current Margin %</div>
+                <div
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: 600,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: marginColor(currentMarginPct),
+                  }}
+                >
+                  {currentMarginPct.toFixed(2)}%
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Category</div>
+                <div style={{ fontSize: "14px", color: C.text }}>{selected.category}</div>
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Category</div>
-              <div style={{ fontSize: "14px", color: C.text }}>{selected.category}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Our Cost (Invoice CPU)</div>
-              <div style={{ fontSize: "18px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
-                {cpuData ? fmt(ourCost) : "—"}
+            {/* Bottom row: Cost, RSP, LV Code */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Our Cost (Invoice CPU)</div>
+                <div style={{ fontSize: "18px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+                  {cpuData ? fmt(ourCost) : "—"}
+                </div>
               </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Our Selling Price (RSP)</div>
-              <div style={{ fontSize: "18px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
-                {cpuData ? fmt(ourRsp) : "—"}
+              <div>
+                <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Our Selling Price (RSP)</div>
+                <div style={{ fontSize: "18px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+                  {cpuData ? fmt(ourRsp) : "—"}
+                </div>
               </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Current Margin %</div>
-              <div
-                style={{
-                  fontSize: "18px",
-                  fontWeight: 600,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  color: marginColor(currentMarginPct),
-                }}
-              >
-                {currentMarginPct.toFixed(2)}%
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-end" }}>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>LV Code</div>
+                  <div style={{ fontSize: "14px", fontFamily: "'JetBrains Mono', monospace", color: C.textDim }}>
+                    {selected.lv_code}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -600,6 +640,119 @@ export default function PriceTrackerPage() {
                 {fmt(parseFloat(competitorPrice) - ourRsp)}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── PERIOD IMPACT ─── */}
+      {calcResult && calcResult.periodImpacts.length > 0 && (
+        <div
+          style={{
+            background: C.card,
+            borderRadius: "10px",
+            padding: "24px",
+            border: `1px solid ${C.border}`,
+            marginBottom: "16px",
+          }}
+        >
+          <h3
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: C.textDim,
+              marginBottom: "16px",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            Period Impact — If We Matched Their Price
+          </h3>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
+            {calcResult.periodImpacts.map((p) => (
+              <div
+                key={p.label}
+                style={{
+                  background: C.bg,
+                  borderRadius: "8px",
+                  padding: "18px",
+                  border: `1px solid ${C.border}`,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: C.accent,
+                    marginBottom: "14px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  {p.label}
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+                  <div>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>Units Sold</div>
+                    <div style={{ fontSize: "16px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+                      {p.qty.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>€ Impact</div>
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: 600,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        color: p.totalImpact < 0 ? C.red : C.green,
+                      }}
+                    >
+                      {p.totalImpact >= 0 ? "+" : ""}{fmt(p.totalImpact)}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    borderTop: `1px solid ${C.border}`,
+                    paddingTop: "10px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>Current Margin</div>
+                    <div
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: 600,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        color: marginColor(p.currentMarginPct),
+                      }}
+                    >
+                      {p.currentMarginPct.toFixed(2)}%
+                    </div>
+                  </div>
+                  <div style={{ fontSize: "16px", color: C.textDim }}>→</div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>New Margin</div>
+                    <div
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: 600,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        color: marginColor(p.newMarginPct),
+                      }}
+                    >
+                      {p.newMarginPct.toFixed(2)}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
