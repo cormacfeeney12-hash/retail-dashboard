@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { label: "☕ F&H Coffee",   path: "/dashboard/coffee" },
   { label: "Departments",     path: "/dashboard/departments" },
   { label: "Top Sellers",     path: "/dashboard/products" },
+  { label: "Price Tracker",   path: "/dashboard/price-tracker" },
   { label: "Benchmark",       path: "/dashboard/benchmark" },
 ];
 
