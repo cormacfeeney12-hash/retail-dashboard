@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { supabase } from "@/lib/supabase";
+import { rds } from "@/lib/rds";
 import { SAMPLE_DATA } from "@/lib/sample-data";
 import { DeptBarChart } from "@/components/charts/DeptBarChart";
 import { AiChat } from "@/components/AiChat";
@@ -48,27 +48,11 @@ export default function OverviewPage() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const PAGE = 1000;
-      let all: TopSellerRow[] = [];
-      let from = 0;
-      let done = false;
-
-      while (!done) {
-        const { data, error } = await supabase
-          .from("top_sellers")
-          .select("store_number,yd_sales,yd_margin,l7d_sales,l7d_margin,ytd_sales,ytd_margin,ly_sales,ly_margin,category,category_code")
-          .range(from, from + PAGE - 1);
-
-        if (error) {
-          console.error("Overview fetch error:", error);
-          break;
-        }
-        all = all.concat(data || []);
-        if (!data || data.length < PAGE) done = true;
-        else from += PAGE;
-      }
-
-      setAllRows(all);
+      const { data, error } = await rds.query<TopSellerRow>(
+        "SELECT store_number,yd_sales,yd_margin,l7d_sales,l7d_margin,ytd_sales,ytd_margin,ly_sales,ly_margin,category,category_code FROM top_sellers"
+      );
+      if (error) console.error("Overview fetch error:", error);
+      setAllRows(data || []);
       setLoading(false);
     }
     load();

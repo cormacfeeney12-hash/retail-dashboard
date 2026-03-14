@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { rds } from "@/lib/rds";
 import { C, fmt } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -147,27 +147,11 @@ export default function MarginAlertsPage() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const PAGE = 1000;
-      let all: Row[] = [];
-      let from = 0;
-      let done = false;
-
-      while (!done) {
-        const { data, error } = await supabase
-          .from("top_sellers")
-          .select("store_number,name,lv_code,category,subcategory,yd_sales,yd_qty,yd_margin,yd_margin_pct,l7d_sales,l7d_qty,l7d_margin,l7d_margin_pct,ytd_sales,ytd_qty,ytd_margin,ytd_margin_pct,ly_sales,ly_qty,ly_margin,ly_margin_pct")
-          .range(from, from + PAGE - 1);
-
-        if (error) {
-          console.error("Margin alerts fetch error:", error);
-          break;
-        }
-        all = all.concat(data || []);
-        if (!data || data.length < PAGE) done = true;
-        else from += PAGE;
-      }
-
-      setRawData(all);
+      const { data, error } = await rds.query<Row>(
+        "SELECT store_number,name,lv_code,category,subcategory,yd_sales,yd_qty,yd_margin,yd_margin_pct,l7d_sales,l7d_qty,l7d_margin,l7d_margin_pct,ytd_sales,ytd_qty,ytd_margin,ytd_margin_pct,ly_sales,ly_qty,ly_margin,ly_margin_pct FROM top_sellers"
+      );
+      if (error) console.error("Margin alerts fetch error:", error);
+      setRawData(data || []);
       setLoading(false);
     }
     load();

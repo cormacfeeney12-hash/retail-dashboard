@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { rds } from "@/lib/rds";
 import { C, fmt } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -119,32 +119,14 @@ export function TopSellers() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [slice, setSlice] = useState<Slice>("all");
 
-  /* ---------- Fetch data (paginate past Supabase 1000-row default) -- */
+  /* ---------- Fetch data from AWS RDS -------------------------------- */
 
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const PAGE = 1000;
-      let allRows: TopSeller[] = [];
-      let from = 0;
-      let done = false;
-
-      while (!done) {
-        const { data: rows, error } = await supabase
-          .from("top_sellers")
-          .select("*")
-          .range(from, from + PAGE - 1);
-
-        if (error) {
-          console.error("Top sellers load error:", error);
-          break;
-        }
-        allRows = allRows.concat(rows || []);
-        if (!rows || rows.length < PAGE) done = true;
-        else from += PAGE;
-      }
-
-      setData(allRows);
+      const { data, error } = await rds.query<TopSeller>("SELECT * FROM top_sellers");
+      if (error) console.error("Top sellers load error:", error);
+      setData(data || []);
       setLoading(false);
     }
     load();

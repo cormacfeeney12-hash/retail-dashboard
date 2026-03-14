@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { rds } from "@/lib/rds";
 import { C } from "@/lib/utils";
 
 interface CpuAlert {
@@ -40,18 +40,14 @@ export function CpuAlerts() {
       setLoading(true);
       try {
         // Latest week's incorrect CPUs
-        const { data: alertData } = await supabase
-          .from("v_incorrect_cpus")
-          .select("*")
-          .order("comparison_date", { ascending: false })
-          .limit(20);
+        const { data: alertData } = await rds.query<CpuAlert>(
+          "SELECT * FROM v_incorrect_cpus ORDER BY comparison_date DESC LIMIT 20"
+        );
 
         // Weekly summary (latest week)
-        const { data: summaryData } = await supabase
-          .from("v_weekly_summary")
-          .select("*")
-          .order("comparison_date", { ascending: false })
-          .limit(1);
+        const { data: summaryData } = await rds.query<WeeklySummary>(
+          "SELECT * FROM v_weekly_summary ORDER BY comparison_date DESC LIMIT 1"
+        );
 
         setAlerts(alertData || []);
         setSummary(summaryData?.[0] || null);

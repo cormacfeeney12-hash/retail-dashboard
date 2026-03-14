@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { supabase } from "@/lib/supabase";
+import { rds } from "@/lib/rds";
 import { C, fmt } from "@/lib/utils";
 
 /* ───── types ───── */
@@ -120,15 +120,12 @@ export default function PriceTrackerPage() {
   /* ── load history ── */
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
-    const { data, error } = await supabase
-      .from("price_checks")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-
+    const { data, error } = await rds.query<PriceCheck>(
+      "SELECT * FROM price_checks ORDER BY created_at DESC LIMIT 50"
+    );
     if (error) {
-      if (error.code === "PGRST205") setTableExists(false);
       console.error("History load error:", error);
+      setTableExists(false);
     } else {
       setHistory(data || []);
       setTableExists(true);
@@ -151,27 +148,23 @@ export default function PriceTrackerPage() {
       setSearching(true);
       const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
-      // Build Supabase query: each word must appear in the name (AND logic)
+      // Each word must appear in the name (AND logic)
       // Also fetch lv_code matches for the full query
       const cols = "name,lv_code,category,subcategory,store_number,yd_margin_pct,l7d_margin_pct,ytd_margin_pct,yd_qty,l7d_qty,ytd_qty,yd_sales,l7d_sales,ytd_sales,yd_margin,l7d_margin,ytd_margin";
 
-      // For name: chain .ilike for each word (AND); fetch more rows to allow client filter
-      let nameQuery = supabase
-        .from("top_sellers")
-        .select(cols)
-        .eq("store_number", store);
-      for (const w of words) {
-        nameQuery = nameQuery.ilike("name", `%${w}%`);
-      }
-      const { data: nameData } = await nameQuery.limit(15);
+      // For name: each word must appear (AND logic via multiple ILIKE conditions)
+      const nameConditions = words.map((_, i) => `name ILIKE $${i + 2}`).join(" AND ");
+      const nameParams: unknown[] = [store, ...words.map((w) => `%${w}%`)];
+      const { data: nameData } = await rds.query<ProductResult>(
+        `SELECT ${cols} FROM top_sellers WHERE store_number = $1 AND ${nameConditions} LIMIT 15`,
+        nameParams
+      );
 
       // For lv_code: simple match on full query
-      const { data: codeData } = await supabase
-        .from("top_sellers")
-        .select(cols)
-        .eq("store_number", store)
-        .ilike("lv_code", `%${query.trim()}%`)
-        .limit(5);
+      const { data: codeData } = await rds.query<ProductResult>(
+        `SELECT ${cols} FROM top_sellers WHERE store_number = $1 AND lv_code ILIKE $2 LIMIT 5`,
+        [store, `%${query.trim()}%`]
+      );
 
       // Merge results, deduplicate by lv_code
       const seen = new Set<string>();
@@ -200,12 +193,10 @@ export default function PriceTrackerPage() {
     setSaved(false);
 
     // Fetch CPU data
-    const { data } = await supabase
-      .from("cpu_comparisons")
-      .select("invoice_cpu,rsp")
-      .eq("lv_code", product.lv_code)
-      .order("created_at", { ascending: false })
-      .limit(1);
+    const { data } = await rds.query<CpuRow>(
+      "SELECT invoice_cpu, rsp FROM cpu_comparisons WHERE lv_code = $1 ORDER BY created_at DESC LIMIT 1",
+      [product.lv_code]
+    );
 
     // If cpu_comparisons has data, use it; otherwise derive from top_sellers
     if (data && data.length > 0) {
@@ -294,7 +285,7 @@ export default function PriceTrackerPage() {
     const cost = cpuData?.invoice_cpu ?? 0;
 
     if (tableExists) {
-      const { error } = await supabase.from("price_checks").insert({
+      const { error } = await rds.insert("price_checks", {
         product_name: selected.name,
         lv_code: selected.lv_code,
         store_number: store,

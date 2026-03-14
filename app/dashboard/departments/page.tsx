@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { rds } from "@/lib/rds";
 import { SAMPLE_DATA } from "@/lib/sample-data";
 import { AiChat } from "@/components/AiChat";
 import { C, fmt } from "@/lib/utils";
@@ -135,27 +135,9 @@ export default function DepartmentsPage() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const PAGE = 1000;
-      let all: TopSellerRow[] = [];
-      let from = 0;
-      let done = false;
-
-      while (!done) {
-        const { data, error } = await supabase
-          .from("top_sellers")
-          .select("*")
-          .range(from, from + PAGE - 1);
-
-        if (error) {
-          console.error("Departments fetch error:", error);
-          break;
-        }
-        all = all.concat(data || []);
-        if (!data || data.length < PAGE) done = true;
-        else from += PAGE;
-      }
-
-      setRawData(all);
+      const { data, error } = await rds.query<TopSellerRow>("SELECT * FROM top_sellers");
+      if (error) console.error("Departments fetch error:", error);
+      setRawData(data || []);
       setLoading(false);
     }
     load();
