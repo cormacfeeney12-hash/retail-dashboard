@@ -54,6 +54,12 @@ type StoreFilter = "2064" | "2056";
 
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
 
+/** Normalise margin_pct: if stored as decimal (0.28) → 28, if already % (28) → 28 */
+const normPct = (v: number | null | undefined): number => {
+  const n = num(v);
+  return Math.abs(n) < 1 && n !== 0 ? n * 100 : n;
+};
+
 const pillBtn = (active: boolean): React.CSSProperties => ({
   padding: "5px 12px",
   borderRadius: "6px",
@@ -180,15 +186,45 @@ export default function PriceTrackerPage() {
     setQuery(product.name);
     setCalcResult(null);
 
+    // Debug: log raw values from Supabase
+    console.log("=== Price Tracker: Selected Product Raw Values ===");
+    console.log("Product:", product.name, "| LV Code:", product.lv_code);
+    console.log("l7d_sales:", product.l7d_sales, "| l7d_qty:", product.l7d_qty, "| l7d_margin_pct:", product.l7d_margin_pct);
+    console.log("yd_sales:", product.yd_sales, "| yd_qty:", product.yd_qty, "| yd_margin_pct:", product.yd_margin_pct);
+    console.log("ytd_sales:", product.ytd_sales, "| ytd_qty:", product.ytd_qty, "| ytd_margin_pct:", product.ytd_margin_pct);
+    console.log("l7d_margin:", product.l7d_margin, "| yd_margin:", product.yd_margin, "| ytd_margin:", product.ytd_margin);
+
     // Fetch CPU data
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("cpu_comparisons")
       .select("invoice_cpu,rsp")
       .eq("lv_code", product.lv_code)
       .order("created_at", { ascending: false })
       .limit(1);
 
-    setCpuData(data && data.length > 0 ? data[0] : null);
+    console.log("CPU comparisons lookup for", product.lv_code, ":", data, "error:", error);
+
+    // If cpu_comparisons has data, use it; otherwise derive from top_sellers
+    if (data && data.length > 0) {
+      setCpuData(data[0]);
+    } else {
+      // Derive cost & RSP from top_sellers margin data
+      // RSP = sales / qty, Cost = RSP * (1 - margin_pct)
+      const qty = num(product.l7d_qty) || num(product.yd_qty);
+      const sales = num(product.l7d_sales) || num(product.yd_sales);
+      const marginPctRaw = product.l7d_margin_pct ?? product.yd_margin_pct;
+      const marginPct = normPct(marginPctRaw) / 100; // as decimal 0-1
+
+      if (qty > 0 && sales > 0) {
+        const derivedRsp = sales / qty;
+        const derivedCost = derivedRsp * (1 - marginPct);
+        console.log("Derived RSP:", derivedRsp, "| Derived Cost:", derivedCost, "| marginPct decimal:", marginPct);
+        setCpuData({ invoice_cpu: derivedCost, rsp: derivedRsp });
+      } else {
+        console.log("Cannot derive cost/RSP: qty=", qty, "sales=", sales);
+        setCpuData(null);
+      }
+    }
   };
 
   /* ── calculate ── */
@@ -200,7 +236,7 @@ export default function PriceTrackerPage() {
 
     const ourCost = cpuData?.invoice_cpu ?? 0;
     const ourRsp = cpuData?.rsp ?? 0;
-    const ourCurrentMarginPct = num(selected.l7d_margin_pct ?? selected.yd_margin_pct) * 100;
+    const ourCurrentMarginPct = normPct(selected.l7d_margin_pct ?? selected.yd_margin_pct);
 
     // Their margin % if they bought at our cost
     const theirMarginPct = ourCost > 0 ? ((theirPrice - ourCost) / theirPrice) * 100 : 0;
@@ -227,10 +263,19 @@ export default function PriceTrackerPage() {
 
     // Period impacts
     const priceDiff = theirPrice - ourRsp;
+    // Fallback qty: if a period has 0 qty, try yd_qty as fallback
+    const ydQ = num(selected.yd_qty);
+    const l7dQ = num(selected.l7d_qty) || ydQ;
+    const ytdQ = num(selected.ytd_qty) || l7dQ;
+    // Fallback sales similarly
+    const ydS = num(selected.yd_sales);
+    const l7dS = num(selected.l7d_sales) || ydS;
+    const ytdS = num(selected.ytd_sales) || l7dS;
+
     const periods = [
-      { label: "Yesterday", qty: num(selected.yd_qty), sales: num(selected.yd_sales), margin: num(selected.yd_margin), marginPct: num(selected.yd_margin_pct) * 100 },
-      { label: "Last 7 Days", qty: num(selected.l7d_qty), sales: num(selected.l7d_sales), margin: num(selected.l7d_margin), marginPct: num(selected.l7d_margin_pct) * 100 },
-      { label: "YTD", qty: num(selected.ytd_qty), sales: num(selected.ytd_sales), margin: num(selected.ytd_margin), marginPct: num(selected.ytd_margin_pct) * 100 },
+      { label: "Yesterday", qty: ydQ, sales: ydS, margin: num(selected.yd_margin), marginPct: normPct(selected.yd_margin_pct) },
+      { label: "Last 7 Days", qty: l7dQ, sales: l7dS, margin: num(selected.l7d_margin), marginPct: normPct(selected.l7d_margin_pct) },
+      { label: "YTD", qty: ytdQ, sales: ytdS, margin: num(selected.ytd_margin), marginPct: normPct(selected.ytd_margin_pct) },
     ];
     const periodImpacts = periods.map((p) => {
       const totalImpact = priceDiff * p.qty;
@@ -277,7 +322,7 @@ export default function PriceTrackerPage() {
 
   const ourRsp = cpuData?.rsp ?? 0;
   const ourCost = cpuData?.invoice_cpu ?? 0;
-  const currentMarginPct = num(selected?.l7d_margin_pct ?? selected?.yd_margin_pct) * 100;
+  const currentMarginPct = normPct(selected?.l7d_margin_pct ?? selected?.yd_margin_pct);
 
   return (
     <>
@@ -410,13 +455,13 @@ export default function PriceTrackerPage() {
               <div>
                 <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Our Cost (Invoice CPU)</div>
                 <div style={{ fontSize: "18px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
-                  {cpuData ? fmt(ourCost) : "—"}
+                  {ourCost > 0 ? fmt(ourCost) : "—"}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Our Selling Price (RSP)</div>
                 <div style={{ fontSize: "18px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
-                  {cpuData ? fmt(ourRsp) : "—"}
+                  {ourRsp > 0 ? fmt(ourRsp) : "—"}
                 </div>
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-end" }}>
@@ -431,6 +476,32 @@ export default function PriceTrackerPage() {
           </div>
         )}
       </div>
+
+      {/* ─── DEBUG: Raw Supabase Values (temporary) ─── */}
+      {selected && (
+        <div
+          style={{
+            background: C.card,
+            borderRadius: "8px",
+            padding: "14px 18px",
+            border: `1px dashed ${C.border}`,
+            marginBottom: "16px",
+            fontSize: "11px",
+            fontFamily: "'JetBrains Mono', monospace",
+            color: C.textMuted,
+            lineHeight: 1.8,
+          }}
+        >
+          <div style={{ color: C.textDim, fontWeight: 600, marginBottom: "4px" }}>
+            DEBUG — Raw Supabase values for {selected.name}
+          </div>
+          <div>l7d_sales: {String(selected.l7d_sales)} | l7d_qty: {String(selected.l7d_qty)} | l7d_margin_pct: {String(selected.l7d_margin_pct)} | l7d_margin: {String(selected.l7d_margin)}</div>
+          <div>yd_sales: {String(selected.yd_sales)} | yd_qty: {String(selected.yd_qty)} | yd_margin_pct: {String(selected.yd_margin_pct)} | yd_margin: {String(selected.yd_margin)}</div>
+          <div>ytd_sales: {String(selected.ytd_sales)} | ytd_qty: {String(selected.ytd_qty)} | ytd_margin_pct: {String(selected.ytd_margin_pct)} | ytd_margin: {String(selected.ytd_margin)}</div>
+          <div>cpu_comparisons: invoice_cpu={String(cpuData?.invoice_cpu)} | rsp={String(cpuData?.rsp)} | {cpuData ? "found" : "NOT FOUND — using derived values"}</div>
+          <div>normPct(l7d_margin_pct): {normPct(selected.l7d_margin_pct).toFixed(2)}% | normPct(yd_margin_pct): {normPct(selected.yd_margin_pct).toFixed(2)}%</div>
+        </div>
+      )}
 
       {/* ─── COMPETITOR PRICE SECTION ─── */}
       {selected && (
