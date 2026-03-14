@@ -47,7 +47,44 @@ interface PriceCheck {
   margin_impact: number | null;
   recommendation: string | null;
   category: string | null;
+  photo_key: string | null;
 }
+
+interface Idea {
+  id: number;
+  created_at: string;
+  category: string;
+  store_number: string;
+  description: string;
+  priority: string;
+  status: string;
+}
+
+const IDEA_CATEGORIES = [
+  "D0024 GROCERY IMPULSE",
+  "D0025 GROCERY EDIBLE",
+  "D0026 NON FOOD",
+  "D0027 BABY & KIDS",
+  "D0028 PERSONAL CARE",
+  "D0029 BWS",
+  "D0031 TOBACCO",
+  "D0032 PRODUCE",
+  "D0033 MEAT POULTRY FISH",
+  "D0034 DAIRY",
+  "D0035 BREAD AND CAKES",
+  "D0036 DELI AND FOOD TO GO",
+  "D0037 PROVISIONS",
+  "D0038 FROZEN",
+  "D0039 NON FOOD RETAIL",
+  "D0046 NEWS AND MAGS",
+  "D0047 INSTORE SERVICES",
+];
+
+const PRIORITY_OPTIONS = [
+  { value: "high", label: "High", color: "#ef4444" },
+  { value: "medium", label: "Medium", color: "#f59e0b" },
+  { value: "low", label: "Low", color: "#22c55e" },
+];
 
 type StoreFilter = "2064" | "2056" | "both";
 
@@ -118,7 +155,9 @@ export default function PriceTrackerPage() {
   // Competitor input
   const [competitorName, setCompetitorName] = useState("");
   const [competitorPrice, setCompetitorPrice] = useState("");
-  const [photoFile, setPhotoFile] = useState<string>("");
+  // Photo upload
+  const [photoFileObj, setPhotoFileObj] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Track whether user has saved this comparison
   const [saved, setSaved] = useState(false);
@@ -127,6 +166,15 @@ export default function PriceTrackerPage() {
   const [history, setHistory] = useState<PriceCheck[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [tableExists, setTableExists] = useState(true);
+
+  // Ideas
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [ideasLoading, setIdeasLoading] = useState(true);
+  const [ideaCategory, setIdeaCategory] = useState(IDEA_CATEGORIES[0]);
+  const [ideaDesc, setIdeaDesc] = useState("");
+  const [ideaStore, setIdeaStore] = useState<"2064" | "2056" | "both">("2064");
+  const [ideaPriority, setIdeaPriority] = useState("medium");
+  const [ideaSaving, setIdeaSaving] = useState(false);
 
   /* ── load history ── */
   const loadHistory = useCallback(async () => {
@@ -144,9 +192,38 @@ export default function PriceTrackerPage() {
     setHistoryLoading(false);
   }, []);
 
+  /* ── load ideas ── */
+  const loadIdeas = useCallback(async () => {
+    setIdeasLoading(true);
+    const { data, error } = await rds.query<Idea>(
+      "SELECT * FROM store_ideas ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, created_at DESC LIMIT 100"
+    );
+    if (!error) setIdeas(data || []);
+    setIdeasLoading(false);
+  }, []);
+
   useEffect(() => {
     loadHistory();
-  }, [loadHistory]);
+    loadIdeas();
+  }, [loadHistory, loadIdeas]);
+
+  /* ── submit idea ── */
+  const submitIdea = async () => {
+    if (!ideaDesc.trim()) return;
+    setIdeaSaving(true);
+    const storeVal = ideaStore === "both" ? "both" : ideaStore;
+    const { error } = await rds.insert("store_ideas", {
+      category: ideaCategory,
+      store_number: storeVal,
+      description: ideaDesc.trim(),
+      priority: ideaPriority,
+    });
+    if (!error) {
+      setIdeaDesc("");
+      loadIdeas();
+    }
+    setIdeaSaving(false);
+  };
 
   /* ── search products (fuzzy multi-word) ── */
   useEffect(() => {
@@ -312,17 +389,47 @@ export default function PriceTrackerPage() {
     return { theirMarginPct, ourCurrentMarginPct, marginPctDiff, marginImpactPerUnit, recommendation, recColor, impactLabel, periodImpacts };
   }, [selected, competitorPrice, cpuData]);
 
+  /* ── upload photo to S3 ── */
+  const uploadPhoto = async (file: File, storeNumber: string): Promise<string | null> => {
+    try {
+      const res = await fetch("/api/s3-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, contentType: file.type, storeNumber }),
+      });
+      const { presignedUrl, key } = await res.json();
+      if (!presignedUrl) return null;
+
+      await fetch(presignedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      return key as string;
+    } catch (err) {
+      console.error("Photo upload error:", err);
+      return null;
+    }
+  };
+
   /* ── save to history ── */
   const saveCheck = async () => {
     if (!selected || !liveCalc || !competitorName.trim()) return;
     const theirPrice = parseFloat(competitorPrice);
     if (isNaN(theirPrice) || theirPrice <= 0) return;
 
+    setUploading(true);
     const rsp = cpuData?.rsp ?? 0;
     const cost = cpuData?.invoice_cpu ?? 0;
 
+    // Upload photo if present
+    let photoKey: string | null = null;
+    if (photoFileObj) {
+      photoKey = await uploadPhoto(photoFileObj, selected.store_number);
+    }
+
     if (tableExists) {
-      const { error } = await rds.insert("price_checks", {
+      const row: Record<string, unknown> = {
         product_name: selected.name,
         lv_code: selected.lv_code,
         store_number: selected.store_number,
@@ -335,12 +442,16 @@ export default function PriceTrackerPage() {
         margin_impact: liveCalc.marginImpactPerUnit,
         recommendation: liveCalc.recommendation,
         category: selected.category,
-      });
+      };
+      if (photoKey) row.photo_key = photoKey;
+
+      const { error } = await rds.insert("price_checks", row);
       if (!error) {
         setSaved(true);
         loadHistory();
       }
     }
+    setUploading(false);
   };
 
   /* ── reset ── */
@@ -351,7 +462,7 @@ export default function PriceTrackerPage() {
     setOtherStoreProduct(null);
     setCompetitorName("");
     setCompetitorPrice("");
-    setPhotoFile("");
+    setPhotoFileObj(null);
     setSaved(false);
     setSearchResults([]);
   };
@@ -629,17 +740,17 @@ export default function PriceTrackerPage() {
                   alignItems: "center",
                   gap: "8px",
                   cursor: "pointer",
-                  color: photoFile ? C.text : C.textDim,
+                  color: photoFileObj ? C.text : C.textDim,
                 }}
               >
-                <span>{photoFile || "Upload photo..."}</span>
+                <span>{photoFileObj ? photoFileObj.name : "Upload photo..."}</span>
                 <input
                   type="file"
                   accept="image/*"
                   style={{ display: "none" }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    setPhotoFile(f ? f.name : "");
+                    setPhotoFileObj(f ?? null);
                   }}
                 />
               </label>
@@ -647,7 +758,7 @@ export default function PriceTrackerPage() {
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 onClick={saveCheck}
-                disabled={!competitorName.trim() || !liveCalc || saved}
+                disabled={!competitorName.trim() || !liveCalc || saved || uploading}
                 style={{
                   padding: "10px 24px",
                   borderRadius: "8px",
@@ -656,12 +767,12 @@ export default function PriceTrackerPage() {
                   color: "#fff",
                   fontSize: "14px",
                   fontWeight: 600,
-                  cursor: !competitorName.trim() || !liveCalc || saved ? "not-allowed" : "pointer",
-                  opacity: !competitorName.trim() || !liveCalc || saved ? 0.6 : 1,
+                  cursor: !competitorName.trim() || !liveCalc || saved || uploading ? "not-allowed" : "pointer",
+                  opacity: !competitorName.trim() || !liveCalc || saved || uploading ? 0.6 : 1,
                   whiteSpace: "nowrap",
                 }}
               >
-                {saved ? "Saved" : "Save Check"}
+                {uploading ? "Saving..." : saved ? "Saved" : "Save Check"}
               </button>
               <button
                 onClick={reset}
@@ -997,6 +1108,166 @@ export default function PriceTrackerPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+      {/* ─── IDEAS SECTION ─── */}
+      <div
+        style={{
+          background: C.card,
+          borderRadius: "10px",
+          padding: "24px",
+          border: `1px solid ${C.border}`,
+          marginTop: "16px",
+        }}
+      >
+        <h3
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: C.textDim,
+            marginBottom: "16px",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          Ideas
+        </h3>
+
+        {/* Add idea form */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "12px" }}>
+          <div>
+            <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Category</div>
+            <select
+              value={ideaCategory}
+              onChange={(e) => setIdeaCategory(e.target.value)}
+              style={{ ...inputStyle, cursor: "pointer" }}
+            >
+              {IDEA_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Description</div>
+            <input
+              type="text"
+              placeholder="Describe your idea..."
+              value={ideaDesc}
+              onChange={(e) => setIdeaDesc(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitIdea()}
+              style={inputStyle}
+            />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "12px", alignItems: "end", marginBottom: "20px" }}>
+          <div>
+            <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Store</div>
+            <div style={{ display: "flex", gap: "2px" }}>
+              {(["2064", "2056", "both"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setIdeaStore(s)}
+                  style={pillBtn(ideaStore === s, STORE_COLORS[s])}
+                >
+                  {STORE_LABELS[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>Priority</div>
+            <div style={{ display: "flex", gap: "2px" }}>
+              {PRIORITY_OPTIONS.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => setIdeaPriority(p.value)}
+                  style={pillBtn(ideaPriority === p.value, p.color)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={submitIdea}
+            disabled={!ideaDesc.trim() || ideaSaving}
+            style={{
+              padding: "8px 20px",
+              borderRadius: "8px",
+              border: "none",
+              background: C.accent,
+              color: "#fff",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: !ideaDesc.trim() || ideaSaving ? "not-allowed" : "pointer",
+              opacity: !ideaDesc.trim() || ideaSaving ? 0.6 : 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {ideaSaving ? "Saving..." : "Add Idea"}
+          </button>
+        </div>
+
+        {/* Ideas list */}
+        {ideasLoading ? (
+          <div style={{ color: C.textDim, fontSize: "13px", padding: "30px 0", textAlign: "center" }}>
+            Loading...
+          </div>
+        ) : ideas.length === 0 ? (
+          <div style={{ color: C.textMuted, fontSize: "13px", padding: "30px 0", textAlign: "center" }}>
+            No ideas yet — add one above
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {ideas.map((idea) => {
+              const pColor = PRIORITY_OPTIONS.find((p) => p.value === idea.priority)?.color ?? C.textDim;
+              return (
+                <div
+                  key={idea.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "12px 16px",
+                    background: C.bg,
+                    borderRadius: "8px",
+                    border: `1px solid ${C.border}`,
+                    borderLeft: `3px solid ${pColor}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      background: pColor,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", color: C.text, fontWeight: 500 }}>{idea.description}</div>
+                    <div style={{ fontSize: "11px", color: C.textDim, marginTop: "4px" }}>
+                      {idea.category} · {STORE_LABELS[idea.store_number] ?? idea.store_number} · {new Date(idea.created_at).toLocaleDateString("en-IE")}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "3px 8px",
+                      borderRadius: "4px",
+                      background: `${pColor}22`,
+                      color: pColor,
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {idea.priority}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
