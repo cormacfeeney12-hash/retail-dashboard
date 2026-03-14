@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const s3 = new S3Client({
@@ -62,4 +62,24 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ data: data?.[0] ?? null });
+}
+
+export async function DELETE(req: NextRequest) {
+  const { id, s3_key } = await req.json();
+  if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
+  // Delete from Supabase
+  const { error } = await supabase.from("photo_library").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Delete from S3 if key provided
+  if (s3_key) {
+    try {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3_key }));
+    } catch (err) {
+      console.error("S3 delete error:", err);
+    }
+  }
+
+  return NextResponse.json({ success: true });
 }

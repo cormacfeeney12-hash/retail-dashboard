@@ -315,13 +315,17 @@ export default function PriceTrackerPage() {
     }
   };
 
+  // Lightbox
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
   /* ── upload photo (photos tab) ── */
   const handlePhotoUpload = async () => {
     if (!photoUploadFile || !photoTitle.trim()) return;
     setPhotoUploading(true);
+    const localPreview = URL.createObjectURL(photoUploadFile);
     const s3Key = await uploadPhotoToS3(photoUploadFile, photoStore);
     if (s3Key) {
-      await fetch("/api/photos", {
+      const res = await fetch("/api/photos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -333,13 +337,26 @@ export default function PriceTrackerPage() {
           lv_code: photoLinkedProduct?.lv_code ?? null,
         }),
       });
+      const { data: saved } = await res.json();
+      if (saved) {
+        setPhotos((prev) => [{ ...saved, url: localPreview }, ...prev]);
+      }
       setPhotoTitle("");
       setPhotoUploadFile(null);
       setPhotoLinkedProduct(null);
       setPhotoProductQuery("");
-      loadPhotos();
     }
     setPhotoUploading(false);
+  };
+
+  /* ── delete photo ── */
+  const deletePhoto = async (photo: PhotoMeta) => {
+    setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+    await fetch("/api/photos", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: photo.id, s3_key: photo.s3_key }),
+    });
   };
 
   /* ── search products (fuzzy multi-word) ── */
@@ -539,6 +556,11 @@ export default function PriceTrackerPage() {
 
   return (
     <>
+      <style>{`
+        .photo-gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        @media (max-width: 1024px) { .photo-gallery-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 640px) { .photo-gallery-grid { grid-template-columns: 1fr; } }
+      `}</style>
       {/* Store toggle */}
       <div style={{ display: "flex", gap: "2px", marginBottom: "20px" }}>
         {(
@@ -1044,57 +1066,113 @@ export default function PriceTrackerPage() {
               {photosLoading ? (
                 <div style={{ color: C.textDim, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>Loading photos...</div>
               ) : photos.length === 0 ? (
-                <div style={{ color: C.textMuted, fontSize: "13px", padding: "40px 0", textAlign: "center" }}>No photos uploaded yet</div>
+                <div style={{ color: C.textMuted, fontSize: "13px", padding: "60px 0", textAlign: "center" }}>
+                  <div style={{ fontSize: "32px", marginBottom: "12px", opacity: 0.4 }}>&#128247;</div>
+                  No photos added yet
+                </div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "16px" }}>
-                  {photos.map((photo) => (
-                    <div key={photo.id} style={{ background: C.bg, borderRadius: "8px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
-                      {photo.url ? (
-                        <div style={{ width: "100%", height: "160px", background: C.card, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                          <img
-                            src={photo.url}
-                            alt={photo.title}
-                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                          />
-                        </div>
-                      ) : (
-                        <div style={{ width: "100%", height: "160px", background: C.card, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <span style={{ color: C.textMuted, fontSize: "12px" }}>No preview</span>
-                        </div>
-                      )}
-                      <div style={{ padding: "12px" }}>
-                        <div style={{ fontSize: "13px", fontWeight: 600, color: C.text, marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {photo.title}
-                        </div>
-                        <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px" }}>
-                          {photo.category}
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{
-                            padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: 600,
-                            background: `${STORE_COLORS[photo.store_number] ?? themeColor}22`,
-                            color: STORE_COLORS[photo.store_number] ?? themeColor,
-                          }}>
-                            {STORE_LABELS[photo.store_number] ?? photo.store_number}
-                          </span>
-                          <span style={{ fontSize: "10px", color: C.textMuted }}>
-                            {new Date(photo.created_at).toLocaleDateString("en-IE")}
-                          </span>
-                        </div>
-                        {photo.product_name && (
-                          <div style={{ fontSize: "11px", color: C.textDim, marginTop: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {photo.product_name} <span style={{ color: C.textMuted }}>{photo.lv_code}</span>
+                <div className="photo-gallery-grid">
+                  {photos.map((photo) => {
+                    const storeColor = STORE_COLORS[photo.store_number] ?? themeColor;
+                    return (
+                      <div key={photo.id} style={{ background: C.bg, borderRadius: "8px", border: `1px solid ${C.border}`, overflow: "hidden", position: "relative" }}>
+                        {/* Delete button */}
+                        <button
+                          onClick={() => deletePhoto(photo)}
+                          title="Delete photo"
+                          style={{
+                            position: "absolute", top: "8px", right: "8px", zIndex: 2,
+                            width: "28px", height: "28px", borderRadius: "6px",
+                            background: "rgba(0,0,0,0.6)", border: "none",
+                            color: "#ef4444", fontSize: "14px", cursor: "pointer",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}
+                        >
+                          &#128465;
+                        </button>
+                        {/* Thumbnail */}
+                        {photo.url ? (
+                          <div
+                            onClick={() => setLightboxUrl(photo.url ?? null)}
+                            style={{ width: "100%", height: "180px", background: C.card, cursor: "pointer", overflow: "hidden" }}
+                          >
+                            <img
+                              src={photo.url}
+                              alt={photo.title}
+                              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            />
+                          </div>
+                        ) : (
+                          <div style={{ width: "100%", height: "180px", background: C.card, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ color: C.textMuted, fontSize: "12px" }}>No preview</span>
                           </div>
                         )}
+                        <div style={{ padding: "12px" }}>
+                          <div style={{ fontSize: "13px", fontWeight: 600, color: C.text, marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {photo.title}
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+                            <span style={{
+                              padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 600,
+                              background: `${storeColor}22`, color: storeColor,
+                            }}>
+                              {STORE_LABELS[photo.store_number] ?? photo.store_number}
+                            </span>
+                            <span style={{
+                              padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 500,
+                              background: `${C.textMuted}22`, color: C.textDim,
+                            }}>
+                              {photo.category?.replace(/^[A-Z]?\d+\s*[-–]\s*/, "") ?? "—"}
+                            </span>
+                          </div>
+                          {photo.product_name && (
+                            <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {photo.product_name} <span style={{ color: C.textMuted }}>{photo.lv_code}</span>
+                            </div>
+                          )}
+                          <div style={{ fontSize: "10px", color: C.textMuted }}>
+                            {new Date(photo.created_at).toLocaleDateString("en-IE")}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Lightbox overlay ── */}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "zoom-out",
+          }}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: "absolute", top: "20px", right: "20px",
+              background: "none", border: "none", color: "#fff",
+              fontSize: "28px", cursor: "pointer",
+            }}
+          >
+            &#10005;
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            style={{ maxWidth: "90vw", maxHeight: "90vh", objectFit: "contain", borderRadius: "8px" }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
     </>
   );
