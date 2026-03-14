@@ -140,7 +140,7 @@ export default function PriceTrackerPage() {
     loadHistory();
   }, [loadHistory]);
 
-  /* ── search products ── */
+  /* ── search products (fuzzy multi-word) ── */
   useEffect(() => {
     if (query.length < 2) {
       setSearchResults([]);
@@ -149,17 +149,43 @@ export default function PriceTrackerPage() {
 
     const timer = setTimeout(async () => {
       setSearching(true);
-      const { data, error } = await supabase
-        .from("top_sellers")
-        .select("name,lv_code,category,subcategory,store_number,yd_margin_pct,l7d_margin_pct,ytd_margin_pct,yd_qty,l7d_qty,ytd_qty,yd_sales,l7d_sales,ytd_sales,yd_margin,l7d_margin,ytd_margin")
-        .eq("store_number", store)
-        .or(`name.ilike.%${query}%,lv_code.ilike.%${query}%`)
-        .limit(15);
+      const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
-      if (!error && data) {
-        setSearchResults(data);
-        setShowDropdown(true);
+      // Build Supabase query: each word must appear in the name (AND logic)
+      // Also fetch lv_code matches for the full query
+      const cols = "name,lv_code,category,subcategory,store_number,yd_margin_pct,l7d_margin_pct,ytd_margin_pct,yd_qty,l7d_qty,ytd_qty,yd_sales,l7d_sales,ytd_sales,yd_margin,l7d_margin,ytd_margin";
+
+      // For name: chain .ilike for each word (AND); fetch more rows to allow client filter
+      let nameQuery = supabase
+        .from("top_sellers")
+        .select(cols)
+        .eq("store_number", store);
+      for (const w of words) {
+        nameQuery = nameQuery.ilike("name", `%${w}%`);
       }
+      const { data: nameData } = await nameQuery.limit(15);
+
+      // For lv_code: simple match on full query
+      const { data: codeData } = await supabase
+        .from("top_sellers")
+        .select(cols)
+        .eq("store_number", store)
+        .ilike("lv_code", `%${query.trim()}%`)
+        .limit(5);
+
+      // Merge results, deduplicate by lv_code
+      const seen = new Set<string>();
+      const merged: ProductResult[] = [];
+      for (const row of [...(nameData || []), ...(codeData || [])]) {
+        const key = `${row.lv_code}-${row.store_number}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(row);
+        }
+      }
+
+      setSearchResults(merged.slice(0, 15));
+      setShowDropdown(true);
       setSearching(false);
     }, 300);
 
