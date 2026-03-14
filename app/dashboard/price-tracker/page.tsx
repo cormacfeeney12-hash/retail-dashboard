@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, fmt } from "@/lib/utils";
 
@@ -109,21 +109,8 @@ export default function PriceTrackerPage() {
   const [competitorPrice, setCompetitorPrice] = useState("");
   const [photoFile, setPhotoFile] = useState<string>("");
 
-  // Calculation results
-  const [calcResult, setCalcResult] = useState<{
-    theirMarginPct: number;
-    ourMatchedMarginPct: number;
-    marginImpactPerUnit: number;
-    recommendation: string;
-    recColor: string;
-    periodImpacts: {
-      label: string;
-      qty: number;
-      totalImpact: number;
-      currentMarginPct: number;
-      newMarginPct: number;
-    }[];
-  } | null>(null);
+  // Track whether user has saved this comparison
+  const [saved, setSaved] = useState(false);
 
   // History
   const [history, setHistory] = useState<PriceCheck[]>([]);
@@ -184,25 +171,15 @@ export default function PriceTrackerPage() {
     setSelected(product);
     setShowDropdown(false);
     setQuery(product.name);
-    setCalcResult(null);
-
-    // Debug: log raw values from Supabase
-    console.log("=== Price Tracker: Selected Product Raw Values ===");
-    console.log("Product:", product.name, "| LV Code:", product.lv_code);
-    console.log("l7d_sales:", product.l7d_sales, "| l7d_qty:", product.l7d_qty, "| l7d_margin_pct:", product.l7d_margin_pct);
-    console.log("yd_sales:", product.yd_sales, "| yd_qty:", product.yd_qty, "| yd_margin_pct:", product.yd_margin_pct);
-    console.log("ytd_sales:", product.ytd_sales, "| ytd_qty:", product.ytd_qty, "| ytd_margin_pct:", product.ytd_margin_pct);
-    console.log("l7d_margin:", product.l7d_margin, "| yd_margin:", product.yd_margin, "| ytd_margin:", product.ytd_margin);
+    setSaved(false);
 
     // Fetch CPU data
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("cpu_comparisons")
       .select("invoice_cpu,rsp")
       .eq("lv_code", product.lv_code)
       .order("created_at", { ascending: false })
       .limit(1);
-
-    console.log("CPU comparisons lookup for", product.lv_code, ":", data, "error:", error);
 
     // If cpu_comparisons has data, use it; otherwise derive from top_sellers
     if (data && data.length > 0) {
@@ -218,42 +195,37 @@ export default function PriceTrackerPage() {
       if (qty > 0 && sales > 0) {
         const derivedRsp = sales / qty;
         const derivedCost = derivedRsp * (1 - marginPct);
-        console.log("Derived RSP:", derivedRsp, "| Derived Cost:", derivedCost, "| marginPct decimal:", marginPct);
         setCpuData({ invoice_cpu: derivedCost, rsp: derivedRsp });
       } else {
-        console.log("Cannot derive cost/RSP: qty=", qty, "sales=", sales);
         setCpuData(null);
       }
     }
   };
 
-  /* ── calculate ── */
-  const calculate = async () => {
-    if (!selected) return;
+  /* ── live comparison (recomputes as user types) ── */
+  const liveCalc = useMemo(() => {
     const theirPrice = parseFloat(competitorPrice);
-    if (isNaN(theirPrice) || theirPrice <= 0) return;
-    if (!competitorName.trim()) return;
+    if (!selected || isNaN(theirPrice) || theirPrice <= 0) return null;
 
-    const ourCost = cpuData?.invoice_cpu ?? 0;
-    const ourRsp = cpuData?.rsp ?? 0;
-    const ourCurrentMarginPct = normPct(selected.l7d_margin_pct ?? selected.yd_margin_pct);
+    const rsp = cpuData?.rsp ?? 0;
+    const cost = cpuData?.invoice_cpu ?? 0;
 
     // Their margin % if they bought at our cost
-    const theirMarginPct = ourCost > 0 ? ((theirPrice - ourCost) / theirPrice) * 100 : 0;
+    const theirMarginPct = cost > 0 && theirPrice > 0 ? ((theirPrice - cost) / theirPrice) * 100 : 0;
 
     // Our margin % if we matched their price
-    const ourMatchedMarginPct = ourCost > 0 ? ((theirPrice - ourCost) / theirPrice) * 100 : 0;
+    const ourMatchedMarginPct = cost > 0 && theirPrice > 0 ? ((theirPrice - cost) / theirPrice) * 100 : 0;
 
-    // Margin € impact per unit
-    const marginImpactPerUnit = theirPrice - ourRsp;
+    // Margin € impact per unit (positive = we lose margin when matching down)
+    const marginImpactPerUnit = rsp - theirPrice;
 
     // Recommendation
     let recommendation: string;
     let recColor: string;
-    if (theirPrice > ourRsp) {
+    if (theirPrice > rsp) {
       recommendation = "We are cheaper";
       recColor = "#38bdf8"; // blue
-    } else if (ourRsp - theirPrice < ourRsp * 0.03) {
+    } else if (rsp - theirPrice < rsp * 0.03) {
       recommendation = "Price is competitive";
       recColor = C.green;
     } else {
@@ -262,12 +234,10 @@ export default function PriceTrackerPage() {
     }
 
     // Period impacts
-    const priceDiff = theirPrice - ourRsp;
-    // Fallback qty: if a period has 0 qty, try yd_qty as fallback
+    const priceDiff = theirPrice - rsp; // negative when they're cheaper
     const ydQ = num(selected.yd_qty);
     const l7dQ = num(selected.l7d_qty) || ydQ;
     const ytdQ = num(selected.ytd_qty) || l7dQ;
-    // Fallback sales similarly
     const ydS = num(selected.yd_sales);
     const l7dS = num(selected.l7d_sales) || ydS;
     const ytdS = num(selected.ytd_sales) || l7dS;
@@ -285,26 +255,37 @@ export default function PriceTrackerPage() {
       return { label: p.label, qty: p.qty, totalImpact, currentMarginPct: p.marginPct, newMarginPct };
     });
 
-    const result = { theirMarginPct, ourMatchedMarginPct, marginImpactPerUnit, recommendation, recColor, periodImpacts };
-    setCalcResult(result);
+    return { theirMarginPct, ourMatchedMarginPct, marginImpactPerUnit, recommendation, recColor, periodImpacts };
+  }, [selected, competitorPrice, cpuData]);
 
-    // Save to history
+  /* ── save to history ── */
+  const saveCheck = async () => {
+    if (!selected || !liveCalc || !competitorName.trim()) return;
+    const theirPrice = parseFloat(competitorPrice);
+    if (isNaN(theirPrice) || theirPrice <= 0) return;
+
+    const rsp = cpuData?.rsp ?? 0;
+    const cost = cpuData?.invoice_cpu ?? 0;
+
     if (tableExists) {
       const { error } = await supabase.from("price_checks").insert({
         product_name: selected.name,
         lv_code: selected.lv_code,
         store_number: store,
         competitor_name: competitorName.trim(),
-        our_price: ourRsp,
+        our_price: rsp,
         their_price: theirPrice,
-        our_cost: ourCost,
-        our_margin_pct: ourCurrentMarginPct,
-        their_margin_pct: theirMarginPct,
-        margin_impact: marginImpactPerUnit,
-        recommendation: result.recommendation,
+        our_cost: cost,
+        our_margin_pct: normPct(selected.l7d_margin_pct ?? selected.yd_margin_pct),
+        their_margin_pct: liveCalc.theirMarginPct,
+        margin_impact: liveCalc.marginImpactPerUnit,
+        recommendation: liveCalc.recommendation,
         category: selected.category,
       });
-      if (!error) loadHistory();
+      if (!error) {
+        setSaved(true);
+        loadHistory();
+      }
     }
   };
 
@@ -316,7 +297,7 @@ export default function PriceTrackerPage() {
     setCompetitorName("");
     setCompetitorPrice("");
     setPhotoFile("");
-    setCalcResult(null);
+    setSaved(false);
     setSearchResults([]);
   };
 
@@ -369,7 +350,7 @@ export default function PriceTrackerPage() {
             type="text"
             placeholder="Search by product name or LV code..."
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setSelected(null); setCalcResult(null); }}
+            onChange={(e) => { setQuery(e.target.value); setSelected(null); setSaved(false); }}
             onFocus={() => searchResults.length > 0 && setShowDropdown(true)}
             style={inputStyle}
           />
@@ -477,32 +458,6 @@ export default function PriceTrackerPage() {
         )}
       </div>
 
-      {/* ─── DEBUG: Raw Supabase Values (temporary) ─── */}
-      {selected && (
-        <div
-          style={{
-            background: C.card,
-            borderRadius: "8px",
-            padding: "14px 18px",
-            border: `1px dashed ${C.border}`,
-            marginBottom: "16px",
-            fontSize: "11px",
-            fontFamily: "'JetBrains Mono', monospace",
-            color: C.textMuted,
-            lineHeight: 1.8,
-          }}
-        >
-          <div style={{ color: C.textDim, fontWeight: 600, marginBottom: "4px" }}>
-            DEBUG — Raw Supabase values for {selected.name}
-          </div>
-          <div>l7d_sales: {String(selected.l7d_sales)} | l7d_qty: {String(selected.l7d_qty)} | l7d_margin_pct: {String(selected.l7d_margin_pct)} | l7d_margin: {String(selected.l7d_margin)}</div>
-          <div>yd_sales: {String(selected.yd_sales)} | yd_qty: {String(selected.yd_qty)} | yd_margin_pct: {String(selected.yd_margin_pct)} | yd_margin: {String(selected.yd_margin)}</div>
-          <div>ytd_sales: {String(selected.ytd_sales)} | ytd_qty: {String(selected.ytd_qty)} | ytd_margin_pct: {String(selected.ytd_margin_pct)} | ytd_margin: {String(selected.ytd_margin)}</div>
-          <div>cpu_comparisons: invoice_cpu={String(cpuData?.invoice_cpu)} | rsp={String(cpuData?.rsp)} | {cpuData ? "found" : "NOT FOUND — using derived values"}</div>
-          <div>normPct(l7d_margin_pct): {normPct(selected.l7d_margin_pct).toFixed(2)}% | normPct(yd_margin_pct): {normPct(selected.yd_margin_pct).toFixed(2)}%</div>
-        </div>
-      )}
-
       {/* ─── COMPETITOR PRICE SECTION ─── */}
       {selected && (
         <div
@@ -545,7 +500,7 @@ export default function PriceTrackerPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={competitorPrice}
-                onChange={(e) => setCompetitorPrice(e.target.value)}
+                onChange={(e) => { setCompetitorPrice(e.target.value); setSaved(false); }}
                 style={inputStyle}
               />
             </div>
@@ -575,22 +530,22 @@ export default function PriceTrackerPage() {
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button
-                onClick={calculate}
-                disabled={!competitorName.trim() || !competitorPrice}
+                onClick={saveCheck}
+                disabled={!competitorName.trim() || !liveCalc || saved}
                 style={{
                   padding: "10px 24px",
                   borderRadius: "8px",
                   border: "none",
-                  background: C.accent,
+                  background: saved ? C.green : C.accent,
                   color: "#fff",
                   fontSize: "14px",
                   fontWeight: 600,
-                  cursor: !competitorName.trim() || !competitorPrice ? "not-allowed" : "pointer",
-                  opacity: !competitorName.trim() || !competitorPrice ? 0.5 : 1,
+                  cursor: !competitorName.trim() || !liveCalc || saved ? "not-allowed" : "pointer",
+                  opacity: !competitorName.trim() || !liveCalc || saved ? 0.6 : 1,
                   whiteSpace: "nowrap",
                 }}
               >
-                Calculate
+                {saved ? "Saved" : "Save Check"}
               </button>
               <button
                 onClick={reset}
@@ -614,14 +569,14 @@ export default function PriceTrackerPage() {
       )}
 
       {/* ─── CALCULATION RESULTS ─── */}
-      {calcResult && (
+      {liveCalc && (
         <div
           style={{
             background: C.card,
             borderRadius: "10px",
             padding: "24px",
             border: `1px solid ${C.border}`,
-            borderTop: `3px solid ${calcResult.recColor}`,
+            borderTop: `3px solid ${liveCalc.recColor}`,
             marginBottom: "16px",
           }}
         >
@@ -641,13 +596,13 @@ export default function PriceTrackerPage() {
               style={{
                 padding: "6px 16px",
                 borderRadius: "20px",
-                background: `${calcResult.recColor}22`,
-                color: calcResult.recColor,
+                background: `${liveCalc.recColor}22`,
+                color: liveCalc.recColor,
                 fontSize: "13px",
                 fontWeight: 700,
               }}
             >
-              {calcResult.recommendation}
+              {liveCalc.recommendation}
             </div>
           </div>
 
@@ -661,10 +616,10 @@ export default function PriceTrackerPage() {
                   fontSize: "22px",
                   fontWeight: 600,
                   fontFamily: "'JetBrains Mono', monospace",
-                  color: marginColor(calcResult.theirMarginPct),
+                  color: marginColor(liveCalc.theirMarginPct),
                 }}
               >
-                {calcResult.theirMarginPct.toFixed(2)}%
+                {liveCalc.theirMarginPct.toFixed(2)}%
               </div>
             </div>
             <div>
@@ -676,10 +631,10 @@ export default function PriceTrackerPage() {
                   fontSize: "22px",
                   fontWeight: 600,
                   fontFamily: "'JetBrains Mono', monospace",
-                  color: marginColor(calcResult.ourMatchedMarginPct),
+                  color: marginColor(liveCalc.ourMatchedMarginPct),
                 }}
               >
-                {calcResult.ourMatchedMarginPct.toFixed(2)}%
+                {liveCalc.ourMatchedMarginPct.toFixed(2)}%
               </div>
             </div>
             <div>
@@ -691,11 +646,11 @@ export default function PriceTrackerPage() {
                   fontSize: "22px",
                   fontWeight: 600,
                   fontFamily: "'JetBrains Mono', monospace",
-                  color: calcResult.marginImpactPerUnit < 0 ? C.red : C.green,
+                  color: liveCalc.marginImpactPerUnit > 0 ? C.green : liveCalc.marginImpactPerUnit < 0 ? C.red : C.text,
                 }}
               >
-                {calcResult.marginImpactPerUnit >= 0 ? "+" : ""}
-                {fmt(calcResult.marginImpactPerUnit)}
+                {liveCalc.marginImpactPerUnit > 0 ? "+" : ""}
+                {fmt(liveCalc.marginImpactPerUnit)}
               </div>
             </div>
             <div>
@@ -716,7 +671,7 @@ export default function PriceTrackerPage() {
       )}
 
       {/* ─── PERIOD IMPACT ─── */}
-      {calcResult && calcResult.periodImpacts.length > 0 && (
+      {liveCalc && liveCalc.periodImpacts.length > 0 && (
         <div
           style={{
             background: C.card,
@@ -740,7 +695,7 @@ export default function PriceTrackerPage() {
           </h3>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
-            {calcResult.periodImpacts.map((p) => (
+            {liveCalc.periodImpacts.map((p) => (
               <div
                 key={p.label}
                 style={{
