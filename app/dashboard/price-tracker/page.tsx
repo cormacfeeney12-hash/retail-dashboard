@@ -216,7 +216,7 @@ export default function PriceTrackerPage() {
     // Our margin % if we matched their price
     const ourMatchedMarginPct = cost > 0 && theirPrice > 0 ? ((theirPrice - cost) / theirPrice) * 100 : 0;
 
-    // Margin € impact per unit (positive = we lose margin when matching down)
+    // Margin € impact per unit: positive = we have headroom, negative = we'd lose
     const marginImpactPerUnit = rsp - theirPrice;
 
     // Recommendation
@@ -233,26 +233,36 @@ export default function PriceTrackerPage() {
       recColor = C.red;
     }
 
-    // Period impacts
-    const priceDiff = theirPrice - rsp; // negative when they're cheaper
+    // New margin % at competitor price (same for all periods)
+    const newMarginPct = cost > 0 && theirPrice > 0 ? ((theirPrice - cost) / theirPrice) * 100 : 0;
+
+    // Period impacts — correct calculation:
+    //   currentMargin = from Supabase (yd_margin, l7d_margin, ytd_margin)
+    //   newMargin     = (competitorPrice - cost) × qty
+    //   impact        = newMargin - currentMargin
     const ydQ = num(selected.yd_qty);
     const l7dQ = num(selected.l7d_qty) || ydQ;
     const ytdQ = num(selected.ytd_qty) || l7dQ;
-    const ydS = num(selected.yd_sales);
-    const l7dS = num(selected.l7d_sales) || ydS;
-    const ytdS = num(selected.ytd_sales) || l7dS;
+
+    const marginPerUnit = theirPrice - cost;
 
     const periods = [
-      { label: "Yesterday", qty: ydQ, sales: ydS, margin: num(selected.yd_margin), marginPct: normPct(selected.yd_margin_pct) },
-      { label: "Last 7 Days", qty: l7dQ, sales: l7dS, margin: num(selected.l7d_margin), marginPct: normPct(selected.l7d_margin_pct) },
-      { label: "YTD", qty: ytdQ, sales: ytdS, margin: num(selected.ytd_margin), marginPct: normPct(selected.ytd_margin_pct) },
+      { label: "Yesterday", qty: ydQ, currentMargin: num(selected.yd_margin) },
+      { label: "Last 7 Days", qty: l7dQ, currentMargin: num(selected.l7d_margin) },
+      { label: "YTD", qty: ytdQ, currentMargin: num(selected.ytd_margin) },
     ];
+
     const periodImpacts = periods.map((p) => {
-      const totalImpact = priceDiff * p.qty;
-      const newSales = p.sales + totalImpact;
-      const newMargin = p.margin + totalImpact;
-      const newMarginPct = newSales !== 0 ? (newMargin / newSales) * 100 : 0;
-      return { label: p.label, qty: p.qty, totalImpact, currentMarginPct: p.marginPct, newMarginPct };
+      const newMargin = marginPerUnit * p.qty;
+      const impact = newMargin - p.currentMargin;
+      return {
+        label: p.label,
+        qty: p.qty,
+        currentMargin: p.currentMargin,
+        newMargin,
+        impact,
+        newMarginPct,
+      };
     });
 
     return { theirMarginPct, ourMatchedMarginPct, marginImpactPerUnit, recommendation, recColor, periodImpacts };
@@ -670,7 +680,7 @@ export default function PriceTrackerPage() {
         </div>
       )}
 
-      {/* ─── PERIOD IMPACT ─── */}
+      {/* ─── PERIOD IMPACT TABLE ─── */}
       {liveCalc && liveCalc.periodImpacts.length > 0 && (
         <div
           style={{
@@ -694,91 +704,103 @@ export default function PriceTrackerPage() {
             Period Impact — If We Matched Their Price
           </h3>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
-            {liveCalc.periodImpacts.map((p) => (
-              <div
-                key={p.label}
-                style={{
-                  background: C.bg,
-                  borderRadius: "8px",
-                  padding: "18px",
-                  border: `1px solid ${C.border}`,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    color: C.accent,
-                    marginBottom: "14px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  {p.label}
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                  <div>
-                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>Units Sold</div>
-                    <div style={{ fontSize: "16px", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+              <thead>
+                <tr>
+                  {["Period", "Units Sold", "Current Margin €", "New Margin €", "Impact €", "New Margin %"].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "10px 12px",
+                        textAlign: h === "Period" ? "left" : "right",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: C.textDim,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        borderBottom: `1px solid ${C.border}`,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {liveCalc.periodImpacts.map((p) => (
+                  <tr key={p.label}>
+                    <td
+                      style={{
+                        padding: "12px",
+                        fontWeight: 600,
+                        color: C.accent,
+                        borderBottom: `1px solid ${C.border}`,
+                      }}
+                    >
+                      {p.label}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        textAlign: "right",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        color: C.text,
+                        borderBottom: `1px solid ${C.border}`,
+                      }}
+                    >
                       {p.qty.toLocaleString()}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>€ Impact</div>
-                    <div
+                    </td>
+                    <td
                       style={{
-                        fontSize: "16px",
-                        fontWeight: 600,
+                        padding: "12px",
+                        textAlign: "right",
                         fontFamily: "'JetBrains Mono', monospace",
-                        color: p.totalImpact < 0 ? C.red : C.green,
+                        color: C.text,
+                        borderBottom: `1px solid ${C.border}`,
                       }}
                     >
-                      {p.totalImpact >= 0 ? "+" : ""}{fmt(p.totalImpact)}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    borderTop: `1px solid ${C.border}`,
-                    paddingTop: "10px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>Current Margin</div>
-                    <div
+                      {fmt(p.currentMargin)}
+                    </td>
+                    <td
                       style={{
-                        fontSize: "15px",
-                        fontWeight: 600,
+                        padding: "12px",
+                        textAlign: "right",
                         fontFamily: "'JetBrains Mono', monospace",
-                        color: marginColor(p.currentMarginPct),
+                        color: C.text,
+                        borderBottom: `1px solid ${C.border}`,
                       }}
                     >
-                      {p.currentMarginPct.toFixed(2)}%
-                    </div>
-                  </div>
-                  <div style={{ fontSize: "16px", color: C.textDim }}>→</div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "10px", color: C.textDim, marginBottom: "2px" }}>New Margin</div>
-                    <div
+                      {fmt(p.newMargin)}
+                    </td>
+                    <td
                       style={{
-                        fontSize: "15px",
-                        fontWeight: 600,
+                        padding: "12px",
+                        textAlign: "right",
                         fontFamily: "'JetBrains Mono', monospace",
+                        fontWeight: 600,
+                        color: p.impact > 0 ? C.green : p.impact < 0 ? C.red : C.text,
+                        borderBottom: `1px solid ${C.border}`,
+                      }}
+                    >
+                      {p.impact > 0 ? "+" : ""}{fmt(p.impact)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        textAlign: "right",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontWeight: 600,
                         color: marginColor(p.newMarginPct),
+                        borderBottom: `1px solid ${C.border}`,
                       }}
                     >
                       {p.newMarginPct.toFixed(2)}%
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
