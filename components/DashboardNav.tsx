@@ -6,11 +6,14 @@ import { useStore } from "@/contexts/StoreContext";
 
 const NAV_ITEMS = [
   { label: "Overview",        path: "/dashboard" },
-  { label: "Margin Alerts",   path: "/dashboard/margin-alerts" },
+  { label: "Trading Hours",   path: "/dashboard/trading" },
+  { label: "Weather",         path: "/dashboard/weather" },
+  { label: "F&H Coffee",      path: "/dashboard/coffee" },
   { label: "Departments",     path: "/dashboard/departments" },
   { label: "Top Sellers",     path: "/dashboard/products" },
-  { label: "Price Tracker",   path: "/dashboard/price-tracker" },
   { label: "Benchmark",       path: "/dashboard/benchmark" },
+  { label: "Margin Alerts",   path: "/dashboard/margin-alerts" },
+  { label: "Price Tracker",   path: "/dashboard/price-tracker" },
 ];
 
 /* ── Store name mapping ── */
