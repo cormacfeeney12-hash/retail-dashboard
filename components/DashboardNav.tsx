@@ -87,57 +87,6 @@ export function DashboardNav() {
         zIndex: 50,
       }}
     >
-      {/* ── Decorative banner — BAR FEENEY'S SHOP ── */}
-      <div
-        style={{
-          background: "#2a1a0e",
-          padding: "8px 28px",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: "16px",
-          borderBottom: "2px solid #3d2817",
-        }}
-      >
-        <span
-          style={{
-            fontSize: "11px",
-            fontWeight: 700,
-            letterSpacing: "0.15em",
-            color: "#4a7fb5",
-            fontFamily: "Georgia, 'Times New Roman', serif",
-            textTransform: "uppercase",
-          }}
-        >
-          BAR
-        </span>
-        <span
-          style={{
-            fontSize: "16px",
-            fontWeight: 800,
-            letterSpacing: "0.12em",
-            color: "#5b8ec4",
-            fontFamily: "Georgia, 'Times New Roman', serif",
-            textTransform: "uppercase",
-            textShadow: "0 1px 2px rgba(0,0,0,0.4)",
-          }}
-        >
-          {"FEENEY'S"}
-        </span>
-        <span
-          style={{
-            fontSize: "11px",
-            fontWeight: 700,
-            letterSpacing: "0.15em",
-            color: "#4a7fb5",
-            fontFamily: "Georgia, 'Times New Roman', serif",
-            textTransform: "uppercase",
-          }}
-        >
-          SHOP
-        </span>
-      </div>
-
       {/* ── Header row — Logo + Title + Week info ── */}
       <div
         style={{
@@ -181,7 +130,32 @@ export function DashboardNav() {
             Week {weekNo}
           </div>
           <div>{dateStr}</div>
+          <div style={{ fontSize: "10px", color: C.textMuted, marginTop: "2px", fontStyle: "italic" }}>
+            Data reflects previous trading day
+          </div>
         </div>
+      </div>
+
+      {/* ── Feeney's Banner Image ── */}
+      <div
+        style={{
+          width: "100%",
+          height: "70px",
+          overflow: "hidden",
+          lineHeight: 0,
+        }}
+      >
+        <img
+          src="/feeney-banner.png"
+          alt="Feeney's Bar & Shop"
+          style={{
+            width: "100%",
+            height: "70px",
+            objectFit: "cover",
+            objectPosition: "center",
+            display: "block",
+          }}
+        />
       </div>
 
       {/* ── Tab nav ── */}
