@@ -213,59 +213,49 @@ export default function PriceTrackerPage() {
     // Their margin % if they bought at our cost
     const theirMarginPct = cost > 0 && theirPrice > 0 ? ((theirPrice - cost) / theirPrice) * 100 : 0;
 
-    // Our margin % if we matched their price
-    const ourMatchedMarginPct = cost > 0 && theirPrice > 0 ? ((theirPrice - cost) / theirPrice) * 100 : 0;
+    // Our current margin %
+    const ourCurrentMarginPct = normPct(selected.l7d_margin_pct ?? selected.yd_margin_pct);
 
-    // Margin € impact per unit: positive = we have headroom, negative = we'd lose
-    const marginImpactPerUnit = rsp - theirPrice;
+    // Margin % difference: their margin minus ours
+    const marginPctDiff = theirMarginPct - ourCurrentMarginPct;
+
+    // Margin € impact per unit if we change our price to match
+    const marginImpactPerUnit = theirPrice - rsp;
 
     // Recommendation
     let recommendation: string;
     let recColor: string;
+    let impactLabel: string;
     if (theirPrice > rsp) {
       recommendation = "We are cheaper";
       recColor = "#38bdf8"; // blue
+      impactLabel = "Potential margin gain if you raise price to match";
     } else if (rsp - theirPrice < rsp * 0.03) {
       recommendation = "Price is competitive";
       recColor = C.green;
+      impactLabel = "Price is within 3% — minimal impact";
     } else {
       recommendation = "Consider reviewing";
       recColor = C.red;
+      impactLabel = "Margin lost if you lower price to match";
     }
 
-    // New margin % at competitor price (same for all periods)
-    const newMarginPct = cost > 0 && theirPrice > 0 ? ((theirPrice - cost) / theirPrice) * 100 : 0;
-
-    // Period impacts — correct calculation:
-    //   currentMargin = from Supabase (yd_margin, l7d_margin, ytd_margin)
-    //   newMargin     = (competitorPrice - cost) × qty
-    //   impact        = newMargin - currentMargin
+    // Period impacts: € change if we move our price to competitor price
+    // impact = (competitor_price - our_rsp) × qty
+    // positive = competitor higher (we gain by raising), negative = they're cheaper (we lose by lowering)
     const ydQ = num(selected.yd_qty);
     const l7dQ = num(selected.l7d_qty) || ydQ;
     const ytdQ = num(selected.ytd_qty) || l7dQ;
 
-    const marginPerUnit = theirPrice - cost;
+    const priceDiffPerUnit = theirPrice - rsp;
 
-    const periods = [
-      { label: "Yesterday", qty: ydQ, currentMargin: num(selected.yd_margin) },
-      { label: "Last 7 Days", qty: l7dQ, currentMargin: num(selected.l7d_margin) },
-      { label: "YTD", qty: ytdQ, currentMargin: num(selected.ytd_margin) },
+    const periodImpacts = [
+      { label: "Yesterday", qty: ydQ, impact: priceDiffPerUnit * ydQ },
+      { label: "Last 7 Days", qty: l7dQ, impact: priceDiffPerUnit * l7dQ },
+      { label: "YTD", qty: ytdQ, impact: priceDiffPerUnit * ytdQ },
     ];
 
-    const periodImpacts = periods.map((p) => {
-      const newMargin = marginPerUnit * p.qty;
-      const impact = newMargin - p.currentMargin;
-      return {
-        label: p.label,
-        qty: p.qty,
-        currentMargin: p.currentMargin,
-        newMargin,
-        impact,
-        newMarginPct,
-      };
-    });
-
-    return { theirMarginPct, ourMatchedMarginPct, marginImpactPerUnit, recommendation, recColor, periodImpacts };
+    return { theirMarginPct, ourCurrentMarginPct, marginPctDiff, marginImpactPerUnit, recommendation, recColor, impactLabel, periodImpacts };
   }, [selected, competitorPrice, cpuData]);
 
   /* ── save to history ── */
@@ -634,22 +624,37 @@ export default function PriceTrackerPage() {
             </div>
             <div>
               <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
-                Our Margin % if we match
+                Our Current Margin %
               </div>
               <div
                 style={{
                   fontSize: "22px",
                   fontWeight: 600,
                   fontFamily: "'JetBrains Mono', monospace",
-                  color: marginColor(liveCalc.ourMatchedMarginPct),
+                  color: marginColor(liveCalc.ourCurrentMarginPct),
                 }}
               >
-                {liveCalc.ourMatchedMarginPct.toFixed(2)}%
+                {liveCalc.ourCurrentMarginPct.toFixed(2)}%
               </div>
             </div>
             <div>
               <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
-                Margin € Impact / Unit
+                Margin % Difference
+              </div>
+              <div
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 600,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  color: liveCalc.marginPctDiff > 0 ? C.green : liveCalc.marginPctDiff < 0 ? C.red : C.text,
+                }}
+              >
+                {liveCalc.marginPctDiff > 0 ? "+" : ""}{liveCalc.marginPctDiff.toFixed(2)}%
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>
+                € Impact / Unit
               </div>
               <div
                 style={{
@@ -661,19 +666,6 @@ export default function PriceTrackerPage() {
               >
                 {liveCalc.marginImpactPerUnit > 0 ? "+" : ""}
                 {fmt(liveCalc.marginImpactPerUnit)}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "11px", color: C.textDim, marginBottom: "4px" }}>Price Difference</div>
-              <div
-                style={{
-                  fontSize: "22px",
-                  fontWeight: 600,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  color: C.text,
-                }}
-              >
-                {fmt(parseFloat(competitorPrice) - ourRsp)}
               </div>
             </div>
           </div>
@@ -696,19 +688,28 @@ export default function PriceTrackerPage() {
               fontSize: "13px",
               fontWeight: 600,
               color: C.textDim,
-              marginBottom: "16px",
+              marginBottom: "4px",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
             }}
           >
             Period Impact — If We Matched Their Price
           </h3>
+          <div
+            style={{
+              fontSize: "12px",
+              color: liveCalc.marginImpactPerUnit > 0 ? C.green : liveCalc.marginImpactPerUnit < 0 ? C.red : C.textDim,
+              marginBottom: "16px",
+            }}
+          >
+            {liveCalc.impactLabel}
+          </div>
 
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
               <thead>
                 <tr>
-                  {["Period", "Units Sold", "Current Margin €", "New Margin €", "Impact €", "New Margin %"].map((h) => (
+                  {["Period", "Units Sold", "€ Impact"].map((h) => (
                     <th
                       key={h}
                       style={{
@@ -756,46 +757,12 @@ export default function PriceTrackerPage() {
                         padding: "12px",
                         textAlign: "right",
                         fontFamily: "'JetBrains Mono', monospace",
-                        color: C.text,
-                        borderBottom: `1px solid ${C.border}`,
-                      }}
-                    >
-                      {fmt(p.currentMargin)}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        textAlign: "right",
-                        fontFamily: "'JetBrains Mono', monospace",
-                        color: C.text,
-                        borderBottom: `1px solid ${C.border}`,
-                      }}
-                    >
-                      {fmt(p.newMargin)}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        textAlign: "right",
-                        fontFamily: "'JetBrains Mono', monospace",
                         fontWeight: 600,
                         color: p.impact > 0 ? C.green : p.impact < 0 ? C.red : C.text,
                         borderBottom: `1px solid ${C.border}`,
                       }}
                     >
                       {p.impact > 0 ? "+" : ""}{fmt(p.impact)}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        textAlign: "right",
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontWeight: 600,
-                        color: marginColor(p.newMarginPct),
-                        borderBottom: `1px solid ${C.border}`,
-                      }}
-                    >
-                      {p.newMarginPct.toFixed(2)}%
                     </td>
                   </tr>
                 ))}
