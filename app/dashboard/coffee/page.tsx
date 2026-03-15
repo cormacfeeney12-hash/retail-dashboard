@@ -328,10 +328,8 @@ export default function CoffeePage() {
             </div>
           </div>
 
-          {/* Waste Section: Bar Chart (left) | Trend Line (right) */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "24px" }}>
-            {/* ── Left: Net Waste Cups Bar Chart ── */}
-            <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}` }}>
+          {/* Net Waste Cups Bar Chart */}
+          <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, marginBottom: "24px" }}>
               <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
                 Net Waste Cups by Product
               </h3>
@@ -370,11 +368,11 @@ export default function CoffeePage() {
                   );
                 })}
               </div>
-            </div>
+          </div>
 
-            {/* ── Right: Waste % Trend Line Chart ── */}
-            {(() => {
-              const W = 360, H = 220, pad = { top: 30, right: 20, bottom: 40, left: 50 };
+          {/* Waste % Trend Line Chart */}
+          {(() => {
+              const W = 560, H = 220, pad = { top: 30, right: 20, bottom: 40, left: 50 };
               const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
               const allVals = trendPoints.concat([3, 0]);
               const minY = Math.min(...allVals) - 2, maxY = Math.max(...allVals) + 2;
@@ -382,7 +380,7 @@ export default function CoffeePage() {
               const xPos = (i: number) => pad.left + (i / (TREND_PERIODS.length - 1)) * cW;
               const yPos = (v: number) => pad.top + ((maxY - v) / rangeY) * cH;
               return (
-                <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}` }}>
+                <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, marginBottom: "24px" }}>
                   <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "12px" }}>
                     Waste % Trend
                   </h3>
@@ -437,8 +435,7 @@ export default function CoffeePage() {
                   </svg>
                 </div>
               );
-            })()}
-          </div>
+          })()}
 
           {/* Product Table */}
           <div style={{ background: C.card, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
