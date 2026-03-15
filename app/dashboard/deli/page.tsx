@@ -253,6 +253,78 @@ export default function DeliPage() {
 
   const maxDayWaste = Math.max(...wasteByDay.flatMap((d) => [d.ytdAvg, d.lyAvg]), 1);
 
+  /* Day-of-week waste cost totals for summary section */
+  const dayCostSummary = useMemo(() => {
+    const ytdMap = new Map<string, number>();
+    const lyMap = new Map<string, number>();
+    for (const r of corrData) {
+      const wc = num(r.waste_cost);
+      const map = r.period === "YTD" ? ytdMap : lyMap;
+      ytdMap; // reference
+      map.set(r.day_of_week, (map.get(r.day_of_week) ?? 0) + wc);
+    }
+    const days = DAYS_ORDER.map((day) => {
+      const ytd = ytdMap.get(day) ?? 0;
+      const ly = lyMap.get(day) ?? 0;
+      return { day, dayShort: day.slice(0, 3), ytdCost: ytd, lyCost: ly, change: ytd - ly };
+    });
+    const totalYtd = days.reduce((s, d) => s + d.ytdCost, 0);
+    const avgYtd = totalYtd / 7;
+    const worst = [...days].sort((a, b) => b.ytdCost - a.ytdCost)[0];
+    const best = [...days].sort((a, b) => a.ytdCost - b.ytdCost)[0];
+    const mostImproved = [...days].sort((a, b) => a.change - b.change)[0]; // biggest decrease
+    const mostWorsened = [...days].sort((a, b) => b.change - a.change)[0]; // biggest increase
+    const ranked = [...days].sort((a, b) => b.ytdCost - a.ytdCost);
+    return { days, worst, best, mostImproved, mostWorsened, ranked, totalYtd, avgYtd };
+  }, [corrData]);
+
+  /* Heatmap: subcategory × day_of_week waste cost (YTD) */
+  const heatmapData = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    const subs = new Set<string>();
+    for (const r of corrData) {
+      if (r.period !== "YTD") continue;
+      const sub = r.subcategory || "Other";
+      subs.add(sub);
+      if (!map.has(sub)) map.set(sub, new Map());
+      const dayMap = map.get(sub)!;
+      dayMap.set(r.day_of_week, (dayMap.get(r.day_of_week) ?? 0) + num(r.waste_cost));
+    }
+    // Find global min/max for color scaling
+    let minVal = Infinity, maxVal = 0;
+    for (const dayMap of map.values()) {
+      for (const v of dayMap.values()) {
+        if (v < minVal) minVal = v;
+        if (v > maxVal) maxVal = v;
+      }
+    }
+    if (minVal === Infinity) minVal = 0;
+    const rows = Array.from(subs).map((sub) => {
+      const dayMap = map.get(sub)!;
+      const total = DAYS_ORDER.reduce((s, d) => s + (dayMap.get(d) ?? 0), 0);
+      return { sub, values: DAYS_ORDER.map((d) => dayMap.get(d) ?? 0), total };
+    }).sort((a, b) => b.total - a.total);
+    return { rows, minVal, maxVal };
+  }, [corrData]);
+
+  /* Insight card 2: top product driver for the worst-change day */
+  const worstChangeDayDriver = useMemo(() => {
+    if (!dayCostSummary.mostWorsened) return "";
+    const day = dayCostSummary.mostWorsened.day;
+    const prodMap = new Map<string, { name: string; change: number }>();
+    for (const r of corrData) {
+      if (r.day_of_week !== day) continue;
+      const key = r.lv_code || r.name;
+      const wc = num(r.waste_cost);
+      if (!prodMap.has(key)) prodMap.set(key, { name: cleanName(r.name), change: 0 });
+      const ex = prodMap.get(key)!;
+      if (r.period === "YTD") ex.change += wc;
+      else ex.change -= wc; // subtract LY
+    }
+    const sorted = Array.from(prodMap.values()).sort((a, b) => b.change - a.change);
+    return sorted[0]?.name ?? "";
+  }, [corrData, dayCostSummary]);
+
   /* B) YTD vs LY Waste Comparison by product — enriched with yd/l7d from deli_report */
   const wasteComparison = useMemo(() => {
     // YTD and LY YTD from correlation data (summed across all days)
@@ -588,6 +660,200 @@ export default function DeliPage() {
             </div>
           ) : (
             <>
+              {/* ══ DAY OF WEEK WASTE PATTERNS (top summary) ══ */}
+
+              {/* 1) Worst Day Alert Box */}
+              <div style={{ background: C.card, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden", marginBottom: "24px" }}>
+                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, background: `${C.red}0a` }}>
+                  <h3 style={{ fontSize: "14px", fontWeight: 700, color: C.text, margin: "0 0 2px 0" }}>
+                    Day of Week Waste Patterns
+                  </h3>
+                  <p style={{ fontSize: "11px", color: C.textDim, margin: 0 }}>
+                    Which days cost you the most in waste? YTD vs LY YTD comparison.
+                  </p>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0", borderBottom: `1px solid ${C.border}` }}>
+                  {/* Worst day */}
+                  <div style={{ padding: "16px 20px", borderRight: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.08em", color: C.red, textTransform: "uppercase", marginBottom: "6px" }}>
+                      Worst Waste Day
+                    </div>
+                    <div style={{ fontSize: "24px", fontWeight: 700, color: C.text }}>{dayCostSummary.worst?.day}</div>
+                    <div style={{ fontSize: "16px", fontWeight: 600, color: C.red, fontFamily: "'JetBrains Mono', monospace", marginTop: "2px" }}>
+                      {fmt(dayCostSummary.worst?.ytdCost ?? 0)}
+                    </div>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginTop: "4px" }}>
+                      {dayCostSummary.avgYtd > 0 ? `${(((dayCostSummary.worst?.ytdCost ?? 0) / dayCostSummary.avgYtd - 1) * 100).toFixed(0)}% above weekly avg` : ""}
+                    </div>
+                  </div>
+                  {/* Most improved */}
+                  <div style={{ padding: "16px 20px", borderRight: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.08em", color: C.green, textTransform: "uppercase", marginBottom: "6px" }}>
+                      Most Improved vs LY
+                    </div>
+                    <div style={{ fontSize: "24px", fontWeight: 700, color: C.text }}>{dayCostSummary.mostImproved?.day}</div>
+                    <div style={{ fontSize: "16px", fontWeight: 600, color: C.green, fontFamily: "'JetBrains Mono', monospace", marginTop: "2px" }}>
+                      {fmt(dayCostSummary.mostImproved?.change ?? 0)}
+                    </div>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginTop: "4px" }}>
+                      waste cost reduction vs LY YTD
+                    </div>
+                  </div>
+                  {/* Got worse */}
+                  <div style={{ padding: "16px 20px" }}>
+                    <div style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.08em", color: C.red, textTransform: "uppercase", marginBottom: "6px" }}>
+                      Got Worse vs LY
+                    </div>
+                    <div style={{ fontSize: "24px", fontWeight: 700, color: C.text }}>{dayCostSummary.mostWorsened?.day}</div>
+                    <div style={{ fontSize: "16px", fontWeight: 600, color: C.red, fontFamily: "'JetBrains Mono', monospace", marginTop: "2px" }}>
+                      +{fmt(dayCostSummary.mostWorsened?.change ?? 0)}
+                    </div>
+                    <div style={{ fontSize: "10px", color: C.textDim, marginTop: "4px" }}>
+                      waste cost increase vs LY YTD
+                    </div>
+                  </div>
+                </div>
+                {/* Ranked days */}
+                <div style={{ padding: "12px 20px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "10px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginRight: "4px" }}>
+                    Ranked worst → best:
+                  </span>
+                  {dayCostSummary.ranked.map((d, i) => (
+                    <div
+                      key={d.day}
+                      style={{
+                        display: "flex", alignItems: "center", gap: "4px",
+                        background: i === 0 ? `${C.red}15` : i === dayCostSummary.ranked.length - 1 ? `${C.green}15` : C.bg,
+                        borderRadius: "6px", padding: "4px 10px",
+                        border: `1px solid ${i === 0 ? `${C.red}33` : i === dayCostSummary.ranked.length - 1 ? `${C.green}33` : C.border}`,
+                      }}
+                    >
+                      <span style={{ fontSize: "11px", fontWeight: 600, color: C.text }}>{d.dayShort}</span>
+                      <span style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", color: i === 0 ? C.red : i === dayCostSummary.ranked.length - 1 ? C.green : C.textDim }}>
+                        {fmt(d.ytdCost)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2) Day of Week Heatmap Table */}
+              <div style={{ background: C.card, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden", marginBottom: "24px" }}>
+                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                  <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
+                    Subcategory × Day Waste Heatmap
+                  </h3>
+                  <p style={{ fontSize: "11px", color: C.textMuted, margin: 0 }}>
+                    Total waste cost € by subcategory and day of week (YTD). Darker red = higher waste.
+                  </p>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, textAlign: "left", minWidth: "180px" }}>Subcategory</th>
+                        {DAYS_ORDER.map((d) => (
+                          <th key={d} style={{ ...thStyle, textAlign: "center", minWidth: "60px" }}>{d.slice(0, 3)}</th>
+                        ))}
+                        <th style={{ ...thStyle, textAlign: "right", minWidth: "70px" }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {heatmapData.rows.map((row, ri) => (
+                        <tr key={row.sub} style={{ background: ri % 2 === 0 ? C.bg : C.card }}>
+                          <td style={{ padding: "8px 12px", color: C.text, fontWeight: 500, fontSize: "11px" }}>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "200px" }}>{row.sub}</div>
+                          </td>
+                          {row.values.map((v, ci) => {
+                            const range = heatmapData.maxVal - heatmapData.minVal;
+                            const intensity = range > 0 ? (v - heatmapData.minVal) / range : 0;
+                            // Red scale: 0 = transparent, 1 = strong red
+                            const bg = v > 0
+                              ? `rgba(220, 53, 69, ${(0.05 + intensity * 0.35).toFixed(2)})`
+                              : "transparent";
+                            return (
+                              <td
+                                key={ci}
+                                style={{
+                                  padding: "8px 6px", textAlign: "center",
+                                  fontFamily: "'JetBrains Mono', monospace", fontSize: "11px",
+                                  color: intensity > 0.6 ? C.red : C.text,
+                                  fontWeight: intensity > 0.6 ? 600 : 400,
+                                  background: bg,
+                                }}
+                              >
+                                {v > 0 ? fmt(v) : "—"}
+                              </td>
+                            );
+                          })}
+                          <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.text, fontSize: "11px" }}>
+                            {fmt(row.total)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 3) Pattern Insight Cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "24px" }}>
+                {/* Card 1: Highest waste day */}
+                <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, borderTop: `3px solid ${C.red}` }}>
+                  <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.red, textTransform: "uppercase", marginBottom: "10px" }}>
+                    Highest Waste Day
+                  </div>
+                  <div style={{ fontSize: "13px", color: C.text, lineHeight: 1.5 }}>
+                    <strong>{dayCostSummary.worst?.day}</strong> is your worst waste day, averaging{" "}
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
+                      {fmt(dayCostSummary.worst?.ytdCost ?? 0)}
+                    </span>{" "}
+                    in total waste cost
+                    {dayCostSummary.avgYtd > 0 && (
+                      <>, <span style={{ fontWeight: 600, color: C.red }}>
+                        {(((dayCostSummary.worst?.ytdCost ?? 0) / dayCostSummary.avgYtd - 1) * 100).toFixed(0)}% above
+                      </span> your weekly average of {fmt(dayCostSummary.avgYtd)}</>
+                    )}
+                    .
+                  </div>
+                </div>
+                {/* Card 2: Biggest waste trend change */}
+                <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, borderTop: `3px solid ${C.amber}` }}>
+                  <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.amber, textTransform: "uppercase", marginBottom: "10px" }}>
+                    Biggest Waste Increase vs LY
+                  </div>
+                  <div style={{ fontSize: "13px", color: C.text, lineHeight: 1.5 }}>
+                    <strong>{dayCostSummary.mostWorsened?.day}</strong> waste has increased{" "}
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.red }}>
+                      +{fmt(dayCostSummary.mostWorsened?.change ?? 0)}
+                    </span>{" "}
+                    vs LY
+                    {worstChangeDayDriver && (
+                      <>, driven mainly by <strong>{worstChangeDayDriver}</strong></>
+                    )}
+                    .
+                  </div>
+                </div>
+                {/* Card 3: Best performing day */}
+                <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, borderTop: `3px solid ${C.green}` }}>
+                  <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.green, textTransform: "uppercase", marginBottom: "10px" }}>
+                    Best Performing Day
+                  </div>
+                  <div style={{ fontSize: "13px", color: C.text, lineHeight: 1.5 }}>
+                    <strong>{dayCostSummary.best?.day}</strong> has your lowest waste at{" "}
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: C.green }}>
+                      {fmt(dayCostSummary.best?.ytdCost ?? 0)}
+                    </span>
+                    {dayCostSummary.avgYtd > 0 && (
+                      <>, <span style={{ fontWeight: 600, color: C.green }}>
+                        {Math.abs(((dayCostSummary.best?.ytdCost ?? 0) / dayCostSummary.avgYtd - 1) * 100).toFixed(0)}% below
+                      </span> weekly average</>
+                    )}
+                    .
+                  </div>
+                </div>
+              </div>
+
               {/* ── A) Waste by Day of Week ── */}
               <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, marginBottom: "24px" }}>
                 <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
