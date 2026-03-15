@@ -14,7 +14,13 @@ export default function BenchmarkPage() {
 
   const data = useMemo(() => {
     let filtered = benchmarks;
-    if (search) filtered = filtered.filter((b) => b.n.toLowerCase().includes(search.toLowerCase()));
+    if (search) {
+      const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+      filtered = filtered.filter((b) => {
+        const haystack = b.n.toLowerCase();
+        return words.every((w) => haystack.includes(w));
+      });
+    }
     return [...filtered].sort((a, b) => (a.v ?? 0) - (b.v ?? 0)); // worst underperformance first
   }, [search]);
 

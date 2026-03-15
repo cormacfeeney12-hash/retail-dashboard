@@ -231,8 +231,11 @@ export default function DepartmentsPage() {
         (r) => r.category === selectedCategory && r.subcategory === selectedSubcategory
       );
       if (search) {
-        const q = search.toLowerCase();
-        products = products.filter((r) => r.name?.toLowerCase().includes(q) || r.lv_code?.toLowerCase().includes(q));
+        const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+        products = products.filter((r) => {
+          const haystack = `${r.name ?? ""} ${r.lv_code ?? ""}`.toLowerCase();
+          return words.every((w) => haystack.includes(w));
+        });
       }
       const rows: AggRow[] = products.map((r) => ({
         name: r.name || r.lv_code,
@@ -275,8 +278,11 @@ export default function DepartmentsPage() {
         childCount: v.count,
       }));
       if (search) {
-        const q = search.toLowerCase();
-        rows = rows.filter((r) => r.name.toLowerCase().includes(q));
+        const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+        rows = rows.filter((r) => {
+          const haystack = r.name.toLowerCase();
+          return words.every((w) => haystack.includes(w));
+        });
       }
       rows.sort((a, b) => b.margin - a.margin);
       return rows;
@@ -311,8 +317,11 @@ export default function DepartmentsPage() {
       childCount: v.subCount.size,
     }));
     if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter((r) => r.name.toLowerCase().includes(q));
+      const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+      rows = rows.filter((r) => {
+        const haystack = r.name.toLowerCase();
+        return words.every((w) => haystack.includes(w));
+      });
     }
     rows.sort((a, b) => b.margin - a.margin);
     return rows;

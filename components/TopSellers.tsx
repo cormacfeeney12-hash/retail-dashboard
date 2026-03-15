@@ -205,8 +205,11 @@ export function TopSellers() {
     if (subcategory !== "All") rows = rows.filter((r) => r.subcategory === subcategory);
     // Search
     if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter((r) => r.name?.toLowerCase().includes(q) || r.lv_code?.toLowerCase().includes(q));
+      const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+      rows = rows.filter((r) => {
+        const haystack = `${r.name ?? ""} ${r.lv_code ?? ""}`.toLowerCase();
+        return words.every((w) => haystack.includes(w));
+      });
     }
 
     // Sort
