@@ -417,9 +417,19 @@ export default function DepartmentsPage() {
           background: C.card,
           borderRadius: "10px",
           border: `1px solid ${C.border}`,
-          overflow: "hidden",
         }}
       >
+        {/* Sticky header + KPIs */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 40,
+            background: C.card,
+            borderRadius: "10px 10px 0 0",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+          }}
+        >
         {/* Header */}
         <div
           style={{
@@ -565,6 +575,8 @@ export default function DepartmentsPage() {
             </div>
           ))}
         </div>
+
+        </div>{/* end sticky header + KPIs */}
 
         {/* Margin Drop Alerts */}
         {!loading && marginAlerts.length > 0 && drillLevel === "category" && !showAlertDetail && (
