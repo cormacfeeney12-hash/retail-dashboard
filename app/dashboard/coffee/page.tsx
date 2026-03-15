@@ -47,9 +47,10 @@ const cleanName = (name: string): string =>
 
 /**
  * Waste pairing by LV code: main coffee → oat milk equivalent.
- * Combined waste = abs(main_waste_cups) + abs(oat_waste_cups)
+ * Net waste cups = main_waste_cups + oat_waste_cups (keep sign, no abs)
  * Combined qty = main_qty + oat_qty
- * Combined waste % = combined_waste_cups / combined_qty * 100
+ * Net waste % = net_waste_cups / combined_qty * 100
+ * Negative = under target (good), Positive = actual waste (bad)
  */
 const WASTE_PAIRS: Record<string, string> = {
   "1499519 000": "1890874 000", // Large Coffee → OAT Coffee Large
@@ -77,9 +78,10 @@ const marginColor = (pct: number) => {
   return C.red;
 };
 
+/** Net waste color: negative = under target (green), 0-4% = at target (amber), >4% = over (red) */
 const wasteColor = (pct: number) => {
-  if (pct <= 10) return C.green;
-  if (pct <= 15) return C.amber;
+  if (pct < 0) return C.green;
+  if (pct <= 4) return C.amber;
   return C.red;
 };
 
@@ -151,46 +153,45 @@ export default function CoffeePage() {
     const marginKey = col(period, "margin");
     const wasteCupsKey = col(period, "waste_cups");
 
-    let totalSales = 0, totalQty = 0, totalMargin = 0, totalWasteCups = 0;
+    let totalSales = 0, totalQty = 0, totalMargin = 0, totalNetWaste = 0;
 
     for (const r of mainProducts) {
       totalSales += num(r[salesKey]);
       totalQty += num(r[qtyKey]);
       totalMargin += num(r[marginKey]);
-      // Combined waste: own cups + paired oat cups
-      const ownWaste = Math.abs(num(r[wasteCupsKey]));
+      // Net waste: keep sign (negative = recovery/good)
+      const ownWaste = num(r[wasteCupsKey]);
       const oatRow = findOatPair(r, data);
-      const oatWaste = oatRow ? Math.abs(num(oatRow[wasteCupsKey])) : 0;
-      totalWasteCups += ownWaste + oatWaste;
+      const oatWaste = oatRow ? num(oatRow[wasteCupsKey]) : 0;
+      totalNetWaste += ownWaste + oatWaste;
     }
 
     const avgMarginPct = totalSales > 0 ? (totalMargin / totalSales) * 100 : 0;
-    const wastePct = totalQty > 0 ? (totalWasteCups / totalQty) * 100 : 0;
+    const wastePct = totalQty > 0 ? (totalNetWaste / totalQty) * 100 : 0;
 
-    return { totalSales, totalQty, totalMargin, avgMarginPct, wastePct };
+    return { totalSales, totalQty, totalMargin, avgMarginPct, wastePct, totalNetWaste };
   }, [mainProducts, data, period]);
 
-  /* ── Waste chart data (only 3 main coffee types with combined waste) ── */
+  /* ── Waste chart data (only 3 main coffee types with net waste) ── */
   const wasteData = useMemo(() => {
     const wasteCupsKey = col(period, "waste_cups");
     const qtyKey = col(period, "qty");
-    // Only the 3 main coffee products that have an oat pair
     const coffeeRows = data.filter((r) => isMainCoffee(r));
     return coffeeRows
       .map((r) => {
-        const ownCups = Math.abs(num(r[wasteCupsKey]));
+        const ownCups = num(r[wasteCupsKey]);
         const oatRow = findOatPair(r, data);
-        const oatCups = oatRow ? Math.abs(num(oatRow[wasteCupsKey])) : 0;
-        const combinedCups = ownCups + oatCups;
+        const oatCups = oatRow ? num(oatRow[wasteCupsKey]) : 0;
+        const netCups = ownCups + oatCups;
         const qty = num(r[qtyKey]) + (oatRow ? num(oatRow[qtyKey]) : 0);
-        const combinedPct = qty > 0 ? (combinedCups / qty) * 100 : 0;
-        return { name: cleanName(r.name), cups: combinedCups, pct: combinedPct };
+        const netPct = qty > 0 ? (netCups / qty) * 100 : 0;
+        return { name: cleanName(r.name), cups: netCups, pct: netPct };
       })
-      .filter((d) => d.cups > 0)
+      .filter((d) => d.cups !== 0)
       .sort((a, b) => b.cups - a.cups);
   }, [data, period]);
 
-  const maxCups = Math.max(...wasteData.map((d) => d.cups), 1);
+  const maxAbsCups = Math.max(...wasteData.map((d) => Math.abs(d.cups)), 1);
 
   /* ── Table keys ── */
   const salesKey = col(period, "sales");
@@ -231,7 +232,7 @@ export default function CoffeePage() {
               { label: "Total Sales", value: fmt(kpis.totalSales), accent: C.accent, color: C.text },
               { label: "Total Cups Sold", value: kpis.totalQty.toLocaleString("en-IE"), accent: "#06b6d4", color: C.text },
               { label: "Average Margin %", value: `${kpis.avgMarginPct.toFixed(1)}%`, accent: marginColor(kpis.avgMarginPct), color: marginColor(kpis.avgMarginPct) },
-              { label: "Waste % vs 10% Target", value: `${kpis.wastePct.toFixed(1)}%`, accent: wasteColor(kpis.wastePct), color: wasteColor(kpis.wastePct) },
+              { label: "Net Waste %", value: `${kpis.wastePct > 0 ? "+" : ""}${kpis.wastePct.toFixed(1)}%`, accent: wasteColor(kpis.wastePct), color: wasteColor(kpis.wastePct) },
             ].map((kpi) => (
               <div
                 key={kpi.label}
@@ -250,51 +251,50 @@ export default function CoffeePage() {
             ))}
           </div>
 
-          {/* Waste Chart */}
+          {/* Net Waste Chart */}
           <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, marginBottom: "24px" }}>
-            <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "16px" }}>
-              Waste Cups by Product
+            <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
+              Net Waste Cups by Product
             </h3>
+            <p style={{ fontSize: "11px", color: C.textMuted, margin: "0 0 16px 0" }}>
+              Negative = under waste target (recovery)
+            </p>
             <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {wasteData.map((d, i) => (
-                <div key={i}>
-                  <div style={{ fontSize: "12px", fontWeight: 500, color: C.text, marginBottom: "4px" }}>
-                    {d.name}
+              {wasteData.map((d, i) => {
+                const barPct = (Math.abs(d.cups) / maxAbsCups) * 50; // half-width max
+                const isNeg = d.cups < 0;
+                return (
+                  <div key={i}>
+                    <div style={{ fontSize: "12px", fontWeight: 500, color: C.text, marginBottom: "4px" }}>
+                      {d.name}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ flex: 1, height: "22px", background: C.bg, borderRadius: "4px", position: "relative" }}>
+                        {/* Center line (zero) */}
+                        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: "1px", background: C.textDim, opacity: 0.3 }} />
+                        {/* Bar: negative grows left from center, positive grows right */}
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 2, bottom: 2,
+                            ...(isNeg
+                              ? { right: "50%", width: `${barPct}%` }
+                              : { left: "50%", width: `${barPct}%` }),
+                            background: isNeg ? `${C.green}aa` : `${C.red}aa`,
+                            borderRadius: "3px",
+                          }}
+                        />
+                      </div>
+                      <div style={{ fontSize: "12px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: wasteColor(d.pct), width: "50px", textAlign: "right", flexShrink: 0 }}>
+                        {d.cups > 0 ? "+" : ""}{d.cups}
+                      </div>
+                      <div style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", color: wasteColor(d.pct), width: "55px", textAlign: "right", flexShrink: 0 }}>
+                        {d.pct > 0 ? "+" : ""}{d.pct.toFixed(1)}%
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{ flex: 1, height: "22px", background: C.bg, borderRadius: "4px", overflow: "hidden", position: "relative" }}>
-                    <div
-                      style={{
-                        height: "100%",
-                        width: `${(d.cups / maxCups) * 100}%`,
-                        background: d.pct > 15 ? `${C.red}88` : d.pct > 10 ? `${C.amber}88` : `${C.green}88`,
-                        borderRadius: "4px",
-                      }}
-                    />
-                    {/* 10% target line */}
-                    <div
-                      style={{
-                        position: "absolute",
-                        left: "10%",
-                        top: 0, bottom: 0, width: "2px",
-                        background: C.red,
-                        borderRight: `1px dashed ${C.red}`,
-                        opacity: 0.6,
-                      }}
-                    />
-                  </div>
-                  <div style={{ fontSize: "12px", fontFamily: "'JetBrains Mono', monospace", color: C.text, width: "50px", textAlign: "right", flexShrink: 0 }}>
-                    {d.cups}
-                  </div>
-                  <div style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", color: wasteColor(d.pct), width: "55px", textAlign: "right", flexShrink: 0 }}>
-                    {d.pct.toFixed(1)}%
-                  </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop: "8px", fontSize: "11px", color: C.textMuted, display: "flex", alignItems: "center", gap: "6px" }}>
-              <div style={{ width: "12px", height: "2px", background: C.red }} /> 10% waste target
+                );
+              })}
             </div>
           </div>
 
@@ -344,41 +344,43 @@ export default function CoffeePage() {
                       const nonCoffee = isNonCoffee(row);
                       const oatRow = findOatPair(row, data);
 
-                      // Combined waste for main coffee products
-                      const ownCups = Math.abs(num(row[wasteCupsKey]));
-                      const pairedOatCups = oatRow ? Math.abs(num(oatRow[wasteCupsKey])) : 0;
-                      const combinedCups = ownCups + pairedOatCups;
+                      // Net waste for main coffee products (keep sign)
+                      const ownCups = num(row[wasteCupsKey]);
+                      const pairedOatCups = oatRow ? num(oatRow[wasteCupsKey]) : 0;
+                      const netCups = ownCups + pairedOatCups;
                       const combinedQty = num(row[qtyKey]) + (oatRow ? num(oatRow[qtyKey]) : 0);
-                      const combinedPct = combinedQty > 0 ? (combinedCups / combinedQty) * 100 : 0;
+                      const netPct = combinedQty > 0 ? (netCups / combinedQty) * 100 : 0;
 
                       // Waste display logic
                       let wasteDisplay: React.ReactNode;
                       let wasteCupsDisplay: React.ReactNode;
                       if (oat) {
-                        // Oat rows: show "—" (waste shown on main product row)
                         wasteDisplay = <span style={{ color: C.textDim }}>—</span>;
                         wasteCupsDisplay = <span style={{ color: C.textDim }}>—</span>;
                       } else if (nonCoffee) {
-                        // Tea, reusable cup, etc: show "N/A"
                         wasteDisplay = <span style={{ color: C.textDim }}>N/A</span>;
                         wasteCupsDisplay = <span style={{ color: C.textDim }}>N/A</span>;
                       } else if (oatRow) {
-                        // Main coffee with oat pair: show combined waste
+                        // Main coffee with oat pair: show net waste with sign
                         wasteDisplay = (
-                          <span style={{ fontWeight: 600, color: wasteColor(combinedPct) }}>
-                            {combinedPct.toFixed(1)}%
+                          <span style={{ fontWeight: 600, color: wasteColor(netPct) }}>
+                            {netPct > 0 ? "+" : ""}{netPct.toFixed(1)}%
                           </span>
                         );
-                        wasteCupsDisplay = combinedCups > 0 ? combinedCups : "—";
+                        wasteCupsDisplay = (
+                          <span style={{ color: wasteColor(netPct) }}>
+                            {netCups > 0 ? "+" : ""}{netCups}
+                          </span>
+                        );
                       } else {
-                        // Fallback (shouldn't happen)
-                        const wPct = Math.abs(num(row[wastePctKey])) * 100;
+                        // Fallback
+                        const wPct = num(row[wastePctKey]) * 100;
                         wasteDisplay = (
                           <span style={{ fontWeight: 600, color: wasteColor(wPct) }}>
-                            {row[wastePctKey] != null ? `${wPct.toFixed(1)}%` : "—"}
+                            {row[wastePctKey] != null ? `${wPct > 0 ? "+" : ""}${wPct.toFixed(1)}%` : "—"}
                           </span>
                         );
-                        wasteCupsDisplay = ownCups > 0 ? ownCups : "—";
+                        wasteCupsDisplay = netCups !== 0 ? netCups : "—";
                       }
 
                       return (
