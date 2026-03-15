@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { label: "Trading Hours",   path: "/dashboard/trading" },
   { label: "Weather",         path: "/dashboard/weather" },
   { label: "F&H Coffee",      path: "/dashboard/coffee" },
+  { label: "Deli",            path: "/dashboard/deli" },
   { label: "Departments",     path: "/dashboard/departments" },
   { label: "Top Sellers",     path: "/dashboard/products" },
   { label: "Benchmark",       path: "/dashboard/benchmark" },

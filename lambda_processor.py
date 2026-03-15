@@ -38,6 +38,10 @@ s3 = boto3.client("s3")
 # Ordered list — longer/more-specific patterns first to avoid false matches
 # (e.g. "margin report" must match top-sellers before "margin" matches margin-report)
 REPORT_PATTERNS: list[tuple[str, list[str]]] = [
+    ("deli", [
+        "new deli", "new_deli", "new-deli", "deli report", "deli_report",
+        "deli-report", "deli",
+    ]),
     ("fh-coffee", [
         "f&h", "f_h", "frank & honest", "frank_honest", "frank-honest",
         "fh coffee", "fh_coffee", "fh-coffee", "coffee report",
@@ -289,6 +293,100 @@ def parse_fh_coffee(wb_bytes: bytes, store_number: str) -> list[dict]:
     return rows
 
 
+# ── Excel parsing: Deli Report ────────────────────────────────────────
+
+def parse_deli(wb_bytes: bytes, store_number: str) -> list[dict]:
+    """
+    Parse the New Deli report Excel.
+    Data starts at row 7 (1-indexed, i.e. row 6 in 0-indexed).
+    Columns (27 total, A-AA):
+      A=name (strip leading number), B=lv_code, C=subcategory (strip prefix)
+      L7D: D=sales, E=qty, F=margin, G=margin_pct, H=waste_qty, I=waste_cost
+      LY:  J=sales, K=qty, L=margin, M=margin_pct, N=waste_qty, O=waste_cost
+      YTD: P=sales, Q=qty, R=margin, S=margin_pct, T=waste_qty, U=waste_cost
+      YD:  V=sales, W=qty, X=margin, Y=margin_pct, Z=waste_qty, AA=waste_cost
+    """
+    wb = openpyxl.load_workbook(io.BytesIO(wb_bytes), read_only=True, data_only=True)
+    ws = wb.active
+    rows = []
+
+    def to_float(v) -> float | None:
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
+    def to_int(v) -> int | None:
+        if v is None:
+            return None
+        try:
+            return int(float(v))
+        except (ValueError, TypeError):
+            return None
+
+    current_subcategory = ""
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=7, values_only=True), start=7):
+        cells = list(row) + [None] * max(0, 27 - len(row))
+
+        # Subcategory in column C — carry forward if present
+        raw_sub = cells[2]
+        if raw_sub:
+            # Strip prefix like "S0095 - "
+            sub = re.sub(r"^[A-Z]\d+\s*-\s*", "", str(raw_sub).strip())
+            if sub:
+                current_subcategory = sub
+
+        # Product name in column A
+        raw_name = cells[0]
+        if not raw_name:
+            continue
+
+        name = re.sub(r"^\d+\s*-\s*", "", str(raw_name).strip())
+        if not name:
+            continue
+
+        lv_code = str(cells[1]).strip() if cells[1] else ""
+
+        record = {
+            "store_number":   store_number,
+            "name":           name,
+            "lv_code":        lv_code,
+            "subcategory":    current_subcategory,
+            "l7d_sales":      to_float(cells[3]),
+            "l7d_qty":        to_int(cells[4]),
+            "l7d_margin":     to_float(cells[5]),
+            "l7d_margin_pct": to_float(cells[6]),
+            "l7d_waste_qty":  to_int(cells[7]),
+            "l7d_waste_cost": to_float(cells[8]),
+            "ly_sales":       to_float(cells[9]),
+            "ly_qty":         to_int(cells[10]),
+            "ly_margin":      to_float(cells[11]),
+            "ly_margin_pct":  to_float(cells[12]),
+            "ly_waste_qty":   to_int(cells[13]),
+            "ly_waste_cost":  to_float(cells[14]),
+            "ytd_sales":      to_float(cells[15]),
+            "ytd_qty":        to_int(cells[16]),
+            "ytd_margin":     to_float(cells[17]),
+            "ytd_margin_pct": to_float(cells[18]),
+            "ytd_waste_qty":  to_int(cells[19]),
+            "ytd_waste_cost": to_float(cells[20]),
+            "yd_sales":       to_float(cells[21]),
+            "yd_qty":         to_int(cells[22]),
+            "yd_margin":      to_float(cells[23]),
+            "yd_margin_pct":  to_float(cells[24]),
+            "yd_waste_qty":   to_int(cells[25]),
+            "yd_waste_cost":  to_float(cells[26]),
+        }
+        rows.append(record)
+
+    wb.close()
+    logger.info("Parsed %d deli rows from Excel for store %s", len(rows), store_number)
+    return rows
+
+
 # ── Database operations ──────────────────────────────────────────────
 
 def get_db_connection():
@@ -387,6 +485,47 @@ def upsert_fh_coffee(rows: list[dict], store_number: str):
         conn.close()
 
 
+def upsert_deli(rows: list[dict], store_number: str):
+    """Delete existing rows for this store, then bulk insert."""
+    if not rows:
+        logger.warning("No deli rows to insert for store %s", store_number)
+        return 0
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM deli_report WHERE store_number = %s", (store_number,))
+            deleted = cur.rowcount
+            logger.info("Deleted %d existing deli rows for store %s", deleted, store_number)
+
+            columns = [
+                "store_number", "name", "lv_code", "subcategory",
+                "l7d_sales", "l7d_qty", "l7d_margin", "l7d_margin_pct", "l7d_waste_qty", "l7d_waste_cost",
+                "ly_sales", "ly_qty", "ly_margin", "ly_margin_pct", "ly_waste_qty", "ly_waste_cost",
+                "ytd_sales", "ytd_qty", "ytd_margin", "ytd_margin_pct", "ytd_waste_qty", "ytd_waste_cost",
+                "yd_sales", "yd_qty", "yd_margin", "yd_margin_pct", "yd_waste_qty", "yd_waste_cost",
+            ]
+            values = [
+                tuple(row[col] for col in columns)
+                for row in rows
+            ]
+
+            insert_sql = f"""
+                INSERT INTO deli_report ({', '.join(columns)})
+                VALUES %s
+            """
+            execute_values(cur, insert_sql, values, page_size=500)
+            logger.info("Inserted %d deli rows for store %s", len(values), store_number)
+
+        conn.commit()
+        return len(values)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ── S3 file management ──────────────────────────────────────────────
 
 def move_s3_file(bucket: str, source_key: str, store_number: str, report_type: str):
@@ -448,9 +587,9 @@ def lambda_handler(event, context):
             if not report_type:
                 raise ValueError(f"Could not identify report type from '{key}' or '{att_filename}'")
             if not store_number:
-                if report_type == "fh-coffee":
+                if report_type in ("fh-coffee", "deli"):
                     store_number = "2064"
-                    logger.info("F&H coffee report — defaulting to store 2064")
+                    logger.info("%s report — defaulting to store 2064", report_type)
                 else:
                     raise ValueError(f"Could not identify store number from '{key}' or '{att_filename}'")
 
@@ -476,6 +615,10 @@ def lambda_handler(event, context):
             elif report_type == "fh-coffee":
                 rows = parse_fh_coffee(att_bytes, store_number)
                 inserted = upsert_fh_coffee(rows, store_number)
+
+            elif report_type == "deli":
+                rows = parse_deli(att_bytes, store_number)
+                inserted = upsert_deli(rows, store_number)
 
             elif report_type in ("margin-report", "departments", "cpu-comparisons"):
                 # Placeholder for other report types
