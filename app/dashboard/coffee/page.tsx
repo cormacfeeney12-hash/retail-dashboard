@@ -376,7 +376,7 @@ export default function CoffeePage() {
             {(() => {
               const W = 360, H = 220, pad = { top: 30, right: 20, bottom: 40, left: 50 };
               const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
-              const allVals = trendPoints.concat([4, 3, 0]);
+              const allVals = trendPoints.concat([3, 0]);
               const minY = Math.min(...allVals) - 2, maxY = Math.max(...allVals) + 2;
               const rangeY = maxY - minY || 1;
               const xPos = (i: number) => pad.left + (i / (TREND_PERIODS.length - 1)) * cW;
@@ -390,10 +390,6 @@ export default function CoffeePage() {
                     <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px", color: C.accent }}>
                       <div style={{ width: "14px", height: "3px", borderRadius: "2px", background: C.accent }} />
                       Overall waste %
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px", color: C.red }}>
-                      <div style={{ width: "14px", borderTop: `2px dashed ${C.red}` }} />
-                      4% limit
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px", color: C.green }}>
                       <div style={{ width: "14px", borderTop: `2px dashed ${C.green}` }} />
@@ -414,9 +410,6 @@ export default function CoffeePage() {
                         </g>
                       );
                     })}
-                    {/* 4% limit (red dashed) */}
-                    <line x1={pad.left} x2={W - pad.right} y1={yPos(4)} y2={yPos(4)} stroke={C.red} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
-                    <text x={W - pad.right + 4} y={yPos(4) + 4} fontSize="9" fill={C.red} fontFamily="'JetBrains Mono', monospace">4%</text>
                     {/* 3% target (green dashed) */}
                     <line x1={pad.left} x2={W - pad.right} y1={yPos(3)} y2={yPos(3)} stroke={C.green} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
                     <text x={W - pad.right + 4} y={yPos(3) + 4} fontSize="9" fill={C.green} fontFamily="'JetBrains Mono', monospace">3%</text>
