@@ -76,6 +76,14 @@ const marginColor = (pct: number | null) => {
   return C.red;
 };
 
+const rowBg = (pct: number | null): string => {
+  if (pct == null) return "transparent";
+  const p = pct * 100;
+  if (p >= 30) return "rgba(25, 135, 84, 0.08)";
+  if (p >= 20) return "rgba(255, 193, 7, 0.08)";
+  return "rgba(220, 53, 69, 0.08)";
+};
+
 /* ------------------------------------------------------------------ */
 /*  Shared inline-style helpers                                        */
 /* ------------------------------------------------------------------ */
@@ -464,12 +472,12 @@ export function TopSellers() {
                 {[
                   { label: "#", align: "right" },
                   { label: "Product Name", align: "left" },
-                  { label: "LV Code", align: "left" },
-                  { label: "Category", align: "left" },
                   { label: "Sales €", align: "right" },
                   { label: "Qty", align: "right" },
                   { label: "Margin €", align: "right" },
                   { label: "Margin %", align: "right" },
+                  { label: "Category", align: "left" },
+                  { label: "LV Code", align: "left" },
                 ].map((h) => (
                   <th
                     key={h.label}
@@ -508,7 +516,7 @@ export function TopSellers() {
                 processed.map((row, i) => {
                   const pct = row[marginPctKey] as number | null;
                   return (
-                    <tr key={row.lv_code + i} style={{ background: i % 2 === 0 ? C.bg : C.card }}>
+                    <tr key={row.lv_code + i} style={{ background: rowBg(pct) }}>
                       <td
                         style={{
                           padding: "10px 12px",
@@ -536,34 +544,6 @@ export function TopSellers() {
                           }}
                         >
                           {row.name}
-                        </div>
-                      </td>
-                      <td
-                        style={{
-                          padding: "10px 12px",
-                          color: C.textDim,
-                          fontSize: "12px",
-                          fontFamily: "'JetBrains Mono', monospace",
-                        }}
-                      >
-                        {row.lv_code}
-                      </td>
-                      <td
-                        style={{
-                          padding: "10px 12px",
-                          color: C.textDim,
-                          fontSize: "12px",
-                          maxWidth: "180px",
-                        }}
-                      >
-                        <div
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {row.category}
                         </div>
                       </td>
                       <td
@@ -606,6 +586,34 @@ export function TopSellers() {
                         }}
                       >
                         {pct != null ? `${(pct * 100).toFixed(1)}%` : "—"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "10px 12px",
+                          color: C.textDim,
+                          fontSize: "12px",
+                          maxWidth: "180px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {row.category}
+                        </div>
+                      </td>
+                      <td
+                        style={{
+                          padding: "10px 12px",
+                          color: C.textDim,
+                          fontSize: "12px",
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }}
+                      >
+                        {row.lv_code}
                       </td>
                     </tr>
                   );
