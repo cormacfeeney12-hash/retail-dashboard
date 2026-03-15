@@ -438,17 +438,18 @@ export default function DepartmentsPage() {
                   <button
                     onClick={handleBack}
                     style={{
-                      background: "none",
-                      border: `1px solid ${C.border}`,
-                      borderRadius: "6px",
-                      color: C.accent,
+                      background: "#7C3AED",
+                      border: "none",
+                      borderRadius: "8px",
+                      color: "#fff",
                       cursor: "pointer",
-                      padding: "4px 8px",
-                      fontSize: "14px",
+                      padding: "10px 20px",
+                      fontSize: "15px",
+                      fontWeight: 600,
                       lineHeight: 1,
                     }}
                   >
-                    &#8592;
+                    &#8592; Back
                   </button>
                 )}
                 <h2 style={{ fontSize: "16px", fontWeight: 700, color: C.text, margin: 0 }}>
