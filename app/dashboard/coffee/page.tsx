@@ -81,9 +81,9 @@ const marginColor = (pct: number) => {
   return C.red;
 };
 
-/** Net waste color: negative = under target (green), 0-4% = at target (amber), >4% = over (red) */
+/** Net waste color: 0% or negative = green, 0.1-4% = amber, >4% = red */
 const wasteColor = (pct: number) => {
-  if (pct < 0) return C.green;
+  if (pct <= 0) return C.green;
   if (pct <= 4) return C.amber;
   return C.red;
 };
