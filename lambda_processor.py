@@ -448,7 +448,11 @@ def lambda_handler(event, context):
             if not report_type:
                 raise ValueError(f"Could not identify report type from '{key}' or '{att_filename}'")
             if not store_number:
-                raise ValueError(f"Could not identify store number from '{key}' or '{att_filename}'")
+                if report_type == "fh-coffee":
+                    store_number = "2064"
+                    logger.info("F&H coffee report — defaulting to store 2064")
+                else:
+                    raise ValueError(f"Could not identify store number from '{key}' or '{att_filename}'")
 
             logger.info("Report type: %s, Store: %s", report_type, store_number)
 
