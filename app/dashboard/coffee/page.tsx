@@ -63,6 +63,7 @@ const MAIN_COFFEE_LV_CODES = new Set(Object.keys(WASTE_PAIRS));
 const ALL_COFFEE_LV_CODES = new Set([...Object.keys(WASTE_PAIRS), ...Object.values(WASTE_PAIRS)]);
 const TEA_LV_CODES = new Set(["1499522 000", "1499559 000"]);
 const NON_COFFEE_LV_CODES = new Set(["1499522 000", "1499559 000", "1640042 000"]);
+const EXCLUDED_LV_CODES = new Set(["1944667 000", "1831060 000"]); // Ice Americano, Iced Dairy
 
 const isOatProduct = (row: CoffeeRow): boolean => OAT_LV_CODES.has(row.lv_code);
 const isMainCoffee = (row: CoffeeRow): boolean => MAIN_COFFEE_LV_CODES.has(row.lv_code);
@@ -119,9 +120,9 @@ export default function CoffeePage() {
         "SELECT * FROM fh_coffee WHERE store_number = '2064' ORDER BY name"
       );
       if (error) console.error("F&H Coffee load error:", error);
-      // Filter out header rows (name starting with "Article")
+      // Filter out header rows and excluded products
       const filtered = (rows || []).filter(
-        (r) => r.name && !r.name.toLowerCase().startsWith("article")
+        (r) => r.name && !r.name.toLowerCase().startsWith("article") && !EXCLUDED_LV_CODES.has(r.lv_code)
       );
       setData(filtered);
       setLoading(false);
@@ -150,18 +151,31 @@ export default function CoffeePage() {
     return result;
   }, [mainProducts, data, period]);
 
-  /* ── Coffee KPIs (6 coffee LV codes) ── */
+  /* ── Coffee KPIs (6 coffee LV codes) + waste cost ── */
   const coffeeKpis = useMemo(() => {
     const sK = col(period, "sales"), qK = col(period, "qty"), mK = col(period, "margin"), wK = col(period, "waste_cups");
     let sales = 0, qty = 0, margin = 0, netWaste = 0;
-    // Sum across all 6 coffee products
     for (const r of data.filter((r) => ALL_COFFEE_LV_CODES.has(r.lv_code))) {
       sales += num(r[sK]); qty += num(r[qK]); margin += num(r[mK]);
       netWaste += num(r[wK]);
     }
     const marginPct = sales > 0 ? (margin / sales) * 100 : 0;
     const wastePct = qty > 0 ? (netWaste / qty) * 100 : 0;
-    return { sales, qty, margin, marginPct, netWaste, wastePct };
+    // Waste cost: unit_cost = (sales - margin) / qty per main coffee, then * abs(net_waste)
+    let totalWasteCost = 0;
+    for (const mainCode of Object.keys(WASTE_PAIRS)) {
+      const main = data.find((r) => r.lv_code === mainCode);
+      const oat = data.find((r) => r.lv_code === WASTE_PAIRS[mainCode]);
+      if (!main) continue;
+      const s = num(main[sK]), m = num(main[mK]), q = num(main[qK]);
+      const unitCost = q > 0 ? (s - m) / q : 0;
+      const mainW = num(main[wK]);
+      const oatW = oat ? num(oat[wK]) : 0;
+      const net = mainW + oatW;
+      // positive net = loss (waste cost), negative net = saving
+      totalWasteCost += unitCost * net;
+    }
+    return { sales, qty, margin, marginPct, netWaste, wastePct, totalWasteCost };
   }, [data, period]);
 
   /* ── Tea KPIs (1499522, 1499559) ── */
@@ -242,12 +256,16 @@ export default function CoffeePage() {
                   { label: "Avg Margin %", value: `${coffeeKpis.marginPct.toFixed(1)}%`, color: marginColor(coffeeKpis.marginPct) },
                   { label: "Net Waste Cups", value: `${coffeeKpis.netWaste > 0 ? "+" : ""}${coffeeKpis.netWaste}`, color: wasteColor(coffeeKpis.wastePct) },
                   { label: "Waste % vs 4%", value: `${coffeeKpis.wastePct > 0 ? "+" : ""}${coffeeKpis.wastePct.toFixed(1)}%`, color: wasteColor(coffeeKpis.wastePct) },
+                  { label: "Est. Waste Cost", value: `${coffeeKpis.totalWasteCost > 0 ? "" : "-"}${fmt(Math.abs(coffeeKpis.totalWasteCost))}`, color: coffeeKpis.totalWasteCost > 0 ? C.red : C.green },
                 ].map((k) => (
                   <div key={k.label}>
                     <div style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "4px" }}>{k.label}</div>
                     <div style={{ fontSize: "18px", fontWeight: 600, color: k.color, fontFamily: "'JetBrains Mono', monospace" }}>{k.value}</div>
                   </div>
                 ))}
+              </div>
+              <div style={{ fontSize: "9px", color: C.textMuted, marginTop: "10px", fontStyle: "italic" }}>
+                Waste cost = (sales - margin) / qty x net waste cups
               </div>
             </div>
 
@@ -349,6 +367,7 @@ export default function CoffeePage() {
                       { label: "Margin %", align: "right" },
                       { label: "Waste %", align: "right" },
                       { label: "Waste Cups", align: "right" },
+                      { label: "Waste Cost €", align: "right" },
                     ].map((h) => (
                       <th
                         key={h.label}
@@ -370,7 +389,7 @@ export default function CoffeePage() {
                 <tbody>
                   {sortedData.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ textAlign: "center", padding: "40px", color: C.textDim }}>
+                      <td colSpan={8} style={{ textAlign: "center", padding: "40px", color: C.textDim }}>
                         No F&amp;H Coffee data found
                       </td>
                     </tr>
@@ -391,12 +410,15 @@ export default function CoffeePage() {
                       // Waste display logic
                       let wasteDisplay: React.ReactNode;
                       let wasteCupsDisplay: React.ReactNode;
+                      let wasteCostDisplay: React.ReactNode;
                       if (oat) {
                         wasteDisplay = <span style={{ color: C.textDim }}>—</span>;
                         wasteCupsDisplay = <span style={{ color: C.textDim }}>—</span>;
+                        wasteCostDisplay = <span style={{ color: C.textDim }}>—</span>;
                       } else if (nonCoffee) {
                         wasteDisplay = <span style={{ color: C.textDim }}>N/A</span>;
                         wasteCupsDisplay = <span style={{ color: C.textDim }}>N/A</span>;
+                        wasteCostDisplay = <span style={{ color: C.textDim }}>N/A</span>;
                       } else if (oatRow) {
                         // Main coffee with oat pair: show net waste with sign
                         wasteDisplay = (
@@ -409,6 +431,15 @@ export default function CoffeePage() {
                             {netCups > 0 ? "+" : ""}{netCups}
                           </span>
                         );
+                        // Waste cost: unit_cost * net_waste_cups
+                        const s = num(row[salesKey]), m = num(row[marginKey]), q = num(row[qtyKey]);
+                        const unitCost = q > 0 ? (s - m) / q : 0;
+                        const cost = unitCost * netCups;
+                        wasteCostDisplay = (
+                          <span style={{ fontWeight: 600, color: cost > 0 ? C.red : C.green }}>
+                            {cost > 0 ? "" : "-"}{fmt(Math.abs(cost))}
+                          </span>
+                        );
                       } else {
                         // Fallback
                         const wPct = num(row[wastePctKey]) * 100;
@@ -418,6 +449,7 @@ export default function CoffeePage() {
                           </span>
                         );
                         wasteCupsDisplay = netCups !== 0 ? netCups : "—";
+                        wasteCostDisplay = <span style={{ color: C.textDim }}>—</span>;
                       }
 
                       return (
@@ -444,6 +476,9 @@ export default function CoffeePage() {
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
                             {wasteCupsDisplay}
+                          </td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace" }}>
+                            {wasteCostDisplay}
                           </td>
                         </tr>
                       );
