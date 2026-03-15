@@ -200,21 +200,43 @@ def parse_top_sellers(wb_bytes: bytes, store_number: str) -> list[dict]:
 
 def parse_fh_coffee(wb_bytes: bytes, store_number: str) -> list[dict]:
     """
-    Parse the F&H Coffee report Excel.
-    Data starts at row 7 (1-indexed).
-    Columns:
+    Parse the F&H Coffee report Excel (5-column-per-period format).
+    Data starts at row 6 (1-indexed).
+    Columns (5 per period, no separate margin_pct):
       A=name (strip leading number), B=lv_code
-      L7D: C=sales, D=qty, E=margin, F=margin_pct, G=waste_pct, H=waste_cups
-      LY:  I=sales, J=qty, K=margin, L=margin_pct, M=waste_pct, N=waste_cups
-      YTD: O=sales, P=qty, Q=margin, R=margin_pct, S=waste_pct, T=waste_cups
-      YD:  U=sales, V=qty, W=margin, X=margin_pct, Y=waste_pct, Z=waste_cups
+      L7D: C=sales, D=qty, E=margin, F=waste_pct, G=waste_cups
+      LY:  H=sales, I=qty, J=margin, K=waste_pct, L=waste_cups
+      YTD: M=sales, N=qty, O=margin, P=waste_pct, Q=waste_cups
+      YD:  R=sales, S=qty, T=margin, U=waste_pct, V=waste_cups
+    margin_pct is calculated as margin/sales where sales > 0.
     """
     wb = openpyxl.load_workbook(io.BytesIO(wb_bytes), read_only=True, data_only=True)
     ws = wb.active
     rows = []
 
-    for row_idx, row in enumerate(ws.iter_rows(min_row=7, values_only=True), start=7):
-        cells = list(row) + [None] * max(0, 26 - len(row))
+    def to_float(v) -> float | None:
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
+    def to_int(v) -> int | None:
+        if v is None:
+            return None
+        try:
+            return int(float(v))
+        except (ValueError, TypeError):
+            return None
+
+    def calc_pct(margin, sales) -> float | None:
+        if margin is not None and sales is not None and sales > 0:
+            return margin / sales
+        return None
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=6, values_only=True), start=6):
+        cells = list(row) + [None] * max(0, 22 - len(row))
 
         raw_name = cells[0]
         if not raw_name:
@@ -226,50 +248,39 @@ def parse_fh_coffee(wb_bytes: bytes, store_number: str) -> list[dict]:
 
         lv_code = str(cells[1]).strip() if cells[1] else ""
 
-        def to_float(v) -> float | None:
-            if v is None:
-                return None
-            try:
-                return float(v)
-            except (ValueError, TypeError):
-                return None
-
-        def to_int(v) -> int | None:
-            if v is None:
-                return None
-            try:
-                return int(float(v))
-            except (ValueError, TypeError):
-                return None
+        l7d_s, l7d_q, l7d_m = to_float(cells[2]), to_int(cells[3]), to_float(cells[4])
+        ly_s,  ly_q,  ly_m  = to_float(cells[7]), to_int(cells[8]), to_float(cells[9])
+        ytd_s, ytd_q, ytd_m = to_float(cells[12]), to_int(cells[13]), to_float(cells[14])
+        yd_s,  yd_q,  yd_m  = to_float(cells[17]), to_int(cells[18]), to_float(cells[19])
 
         record = {
             "store_number":   store_number,
             "name":           name,
             "lv_code":        lv_code,
-            "l7d_sales":      to_float(cells[2]),
-            "l7d_qty":        to_int(cells[3]),
-            "l7d_margin":     to_float(cells[4]),
-            "l7d_margin_pct": to_float(cells[5]),
-            "l7d_waste_pct":  to_float(cells[6]),
-            "l7d_waste_cups": to_int(cells[7]),
-            "ly_sales":       to_float(cells[8]),
-            "ly_qty":         to_int(cells[9]),
-            "ly_margin":      to_float(cells[10]),
-            "ly_margin_pct":  to_float(cells[11]),
-            "ly_waste_pct":   to_float(cells[12]),
-            "ly_waste_cups":  to_int(cells[13]),
-            "ytd_sales":      to_float(cells[14]),
-            "ytd_qty":        to_int(cells[15]),
-            "ytd_margin":     to_float(cells[16]),
-            "ytd_margin_pct": to_float(cells[17]),
-            "ytd_waste_pct":  to_float(cells[18]),
-            "ytd_waste_cups": to_int(cells[19]),
-            "yd_sales":       to_float(cells[20]),
-            "yd_qty":         to_int(cells[21]),
-            "yd_margin":      to_float(cells[22]),
-            "yd_margin_pct":  to_float(cells[23]),
-            "yd_waste_pct":   to_float(cells[24]),
-            "yd_waste_cups":  to_int(cells[25]),
+            "l7d_sales":      l7d_s,
+            "l7d_qty":        l7d_q,
+            "l7d_margin":     l7d_m,
+            "l7d_margin_pct": calc_pct(l7d_m, l7d_s),
+            "l7d_waste_pct":  to_float(cells[5]),
+            "l7d_waste_cups": to_int(cells[6]),
+            "ly_sales":       ly_s,
+            "ly_qty":         ly_q,
+            "ly_margin":      ly_m,
+            "ly_margin_pct":  calc_pct(ly_m, ly_s),
+            "ly_waste_pct":   to_float(cells[10]),
+            "ly_waste_cups":  to_int(cells[11]),
+            "ytd_sales":      ytd_s,
+            "ytd_qty":        ytd_q,
+            "ytd_margin":     ytd_m,
+            "ytd_margin_pct": calc_pct(ytd_m, ytd_s),
+            "ytd_waste_pct":  to_float(cells[15]),
+            "ytd_waste_cups": to_int(cells[16]),
+            "yd_sales":       yd_s,
+            "yd_qty":         yd_q,
+            "yd_margin":      yd_m,
+            "yd_margin_pct":  calc_pct(yd_m, yd_s),
+            "yd_waste_pct":   to_float(cells[20]),
+            "yd_waste_cups":  to_int(cells[21]),
         }
         rows.append(record)
 
