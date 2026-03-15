@@ -202,12 +202,13 @@ export default function CoffeePage() {
             <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "16px" }}>
               Waste Cups by Product
             </h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               {wasteData.map((d, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{ fontSize: "12px", color: C.textDim, width: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>
+                <div key={i}>
+                  <div style={{ fontSize: "12px", fontWeight: 500, color: C.text, marginBottom: "4px" }}>
                     {d.name}
                   </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <div style={{ flex: 1, height: "22px", background: C.bg, borderRadius: "4px", overflow: "hidden", position: "relative" }}>
                     <div
                       style={{
@@ -234,6 +235,7 @@ export default function CoffeePage() {
                   </div>
                   <div style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", color: wasteColor(d.pct), width: "55px", textAlign: "right", flexShrink: 0 }}>
                     {d.pct.toFixed(1)}%
+                  </div>
                   </div>
                 </div>
               ))}
