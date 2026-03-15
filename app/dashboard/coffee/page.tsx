@@ -209,31 +209,25 @@ export default function CoffeePage() {
 
   const maxAbsCups = Math.max(...wasteData.map((d) => Math.abs(d.cups)), 1);
 
-  /* ── Fixed waste trend data (always yd, l7d, ytd — independent of period toggle) ── */
+  /* ── Fixed waste trend: single overall line, YTD → L7D → Yesterday ── */
   const TREND_PERIODS: { key: Period; label: string }[] = [
-    { key: "yd", label: "Yesterday" },
-    { key: "l7d", label: "Last 7 Days" },
     { key: "ytd", label: "YTD" },
+    { key: "l7d", label: "Last 7 Days" },
+    { key: "yd", label: "Yesterday" },
   ];
-  const LINE_COLORS = ["#6366f1", "#f59e0b", "#06b6d4"]; // indigo, amber, cyan
-  const trendLines = useMemo(() => {
-    const mainCodes = Object.keys(WASTE_PAIRS);
-    return mainCodes.map((mainCode, idx) => {
-      const main = data.find((r) => r.lv_code === mainCode);
-      const oat = data.find((r) => r.lv_code === WASTE_PAIRS[mainCode]);
-      const name = main ? cleanName(main.name) : `Coffee ${idx + 1}`;
-      const points = TREND_PERIODS.map((tp) => {
-        const wK = col(tp.key, "waste_cups");
-        const qK = col(tp.key, "qty");
-        const mainW = main ? num(main[wK]) : 0;
-        const oatW = oat ? num(oat[wK]) : 0;
-        const mainQ = main ? num(main[qK]) : 0;
-        const oatQ = oat ? num(oat[qK]) : 0;
-        const totalQ = mainQ + oatQ;
-        const netCups = mainW + oatW;
-        return totalQ > 0 ? (netCups / totalQ) * 100 : 0;
-      });
-      return { name, points, color: LINE_COLORS[idx] };
+  const trendPoints = useMemo(() => {
+    return TREND_PERIODS.map((tp) => {
+      const wK = col(tp.key, "waste_cups");
+      const qK = col(tp.key, "qty");
+      let totalNetWaste = 0, totalQty = 0;
+      for (const mainCode of Object.keys(WASTE_PAIRS)) {
+        const main = data.find((r) => r.lv_code === mainCode);
+        const oat = data.find((r) => r.lv_code === WASTE_PAIRS[mainCode]);
+        if (!main) continue;
+        totalNetWaste += num(main[wK]) + (oat ? num(oat[wK]) : 0);
+        totalQty += num(main[qK]) + (oat ? num(oat[qK]) : 0);
+      }
+      return totalQty > 0 ? (totalNetWaste / totalQty) * 100 : 0;
     });
   }, [data]);
 
@@ -334,124 +328,124 @@ export default function CoffeePage() {
             </div>
           </div>
 
-          {/* Net Waste Chart */}
-          <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, marginBottom: "24px" }}>
-            <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
-              Net Waste Cups by Product
-            </h3>
-            <p style={{ fontSize: "11px", color: C.textMuted, margin: "0 0 16px 0" }}>
-              Negative = under waste target (recovery)
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {wasteData.map((d, i) => {
-                const barPct = (Math.abs(d.cups) / maxAbsCups) * 50; // half-width max
-                const isNeg = d.cups < 0;
-                return (
-                  <div key={i}>
-                    <div style={{ fontSize: "12px", fontWeight: 500, color: C.text, marginBottom: "4px" }}>
-                      {d.name}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <div style={{ flex: 1, height: "22px", background: C.bg, borderRadius: "4px", position: "relative" }}>
-                        {/* Center line (zero) */}
-                        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: "1px", background: C.textDim, opacity: 0.3 }} />
-                        {/* Bar: negative grows left from center, positive grows right */}
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: 2, bottom: 2,
-                            ...(isNeg
-                              ? { right: "50%", width: `${barPct}%` }
-                              : { left: "50%", width: `${barPct}%` }),
-                            background: isNeg ? `${C.green}aa` : `${C.red}aa`,
-                            borderRadius: "3px",
-                          }}
-                        />
+          {/* Waste Section: Bar Chart (left) | Trend Line (right) */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "24px" }}>
+            {/* ── Left: Net Waste Cups Bar Chart ── */}
+            <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}` }}>
+              <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
+                Net Waste Cups by Product
+              </h3>
+              <p style={{ fontSize: "11px", color: C.textMuted, margin: "0 0 16px 0" }}>
+                Negative = under waste target (recovery)
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {wasteData.map((d, i) => {
+                  const barPct = (Math.abs(d.cups) / maxAbsCups) * 50;
+                  const isNeg = d.cups < 0;
+                  return (
+                    <div key={i}>
+                      <div style={{ fontSize: "12px", fontWeight: 500, color: C.text, marginBottom: "4px" }}>
+                        {d.name}
                       </div>
-                      <div style={{ fontSize: "12px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: wasteColor(d.pct), width: "50px", textAlign: "right", flexShrink: 0 }}>
-                        {d.cups > 0 ? "+" : ""}{d.cups}
-                      </div>
-                      <div style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", color: wasteColor(d.pct), width: "55px", textAlign: "right", flexShrink: 0 }}>
-                        {d.pct > 0 ? "+" : ""}{d.pct.toFixed(1)}%
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <div style={{ flex: 1, height: "22px", background: C.bg, borderRadius: "4px", position: "relative" }}>
+                          <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: "1px", background: C.textDim, opacity: 0.3 }} />
+                          <div
+                            style={{
+                              position: "absolute", top: 2, bottom: 2,
+                              ...(isNeg ? { right: "50%", width: `${barPct}%` } : { left: "50%", width: `${barPct}%` }),
+                              background: isNeg ? `${C.green}aa` : `${C.red}aa`,
+                              borderRadius: "3px",
+                            }}
+                          />
+                        </div>
+                        <div style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: wasteColor(d.pct), width: "40px", textAlign: "right", flexShrink: 0 }}>
+                          {d.cups > 0 ? "+" : ""}{d.cups}
+                        </div>
+                        <div style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace", color: wasteColor(d.pct), width: "48px", textAlign: "right", flexShrink: 0 }}>
+                          {d.pct > 0 ? "+" : ""}{d.pct.toFixed(1)}%
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
 
-          {/* Waste % Trend Line Chart (fixed — always shows yd, l7d, ytd) */}
-          {(() => {
-            const W = 560, H = 220, pad = { top: 30, right: 20, bottom: 40, left: 50 };
-            const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
-            const allVals = trendLines.flatMap((l) => l.points).concat([4, 0]);
-            const minY = Math.min(...allVals) - 2, maxY = Math.max(...allVals) + 2;
-            const rangeY = maxY - minY || 1;
-            const xPos = (i: number) => pad.left + (i / (TREND_PERIODS.length - 1)) * cW;
-            const yPos = (v: number) => pad.top + ((maxY - v) / rangeY) * cH;
-            return (
-              <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, marginBottom: "24px" }}>
-                <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "12px" }}>
-                  Waste % Trend
-                </h3>
-                <div style={{ display: "flex", gap: "16px", marginBottom: "12px" }}>
-                  {trendLines.map((l) => (
-                    <div key={l.name} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: C.text }}>
-                      <div style={{ width: "16px", height: "3px", borderRadius: "2px", background: l.color }} />
-                      {l.name}
+            {/* ── Right: Waste % Trend Line Chart ── */}
+            {(() => {
+              const W = 360, H = 220, pad = { top: 30, right: 20, bottom: 40, left: 50 };
+              const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
+              const allVals = trendPoints.concat([4, 3, 0]);
+              const minY = Math.min(...allVals) - 2, maxY = Math.max(...allVals) + 2;
+              const rangeY = maxY - minY || 1;
+              const xPos = (i: number) => pad.left + (i / (TREND_PERIODS.length - 1)) * cW;
+              const yPos = (v: number) => pad.top + ((maxY - v) / rangeY) * cH;
+              return (
+                <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}` }}>
+                  <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "12px" }}>
+                    Waste % Trend
+                  </h3>
+                  <div style={{ display: "flex", gap: "12px", marginBottom: "10px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px", color: C.accent }}>
+                      <div style={{ width: "14px", height: "3px", borderRadius: "2px", background: C.accent }} />
+                      Overall waste %
                     </div>
-                  ))}
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: C.red }}>
-                    <div style={{ width: "16px", height: "0", borderTop: `2px dashed ${C.red}` }} />
-                    4% target
+                    <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px", color: C.red }}>
+                      <div style={{ width: "14px", borderTop: `2px dashed ${C.red}` }} />
+                      4% limit
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px", color: C.green }}>
+                      <div style={{ width: "14px", borderTop: `2px dashed ${C.green}` }} />
+                      3% target
+                    </div>
                   </div>
-                </div>
-                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W, height: "auto" }}>
-                  {/* Y axis grid lines */}
-                  {Array.from({ length: 5 }, (_, i) => {
-                    const v = minY + (rangeY * i) / 4;
-                    const y = yPos(v);
-                    return (
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
+                    {/* Y grid */}
+                    {Array.from({ length: 5 }, (_, i) => {
+                      const v = minY + (rangeY * i) / 4;
+                      const y = yPos(v);
+                      return (
+                        <g key={i}>
+                          <line x1={pad.left} x2={W - pad.right} y1={y} y2={y} stroke={C.border} strokeWidth={0.5} />
+                          <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill={C.textDim} fontFamily="'JetBrains Mono', monospace">
+                            {v.toFixed(0)}%
+                          </text>
+                        </g>
+                      );
+                    })}
+                    {/* 4% limit (red dashed) */}
+                    <line x1={pad.left} x2={W - pad.right} y1={yPos(4)} y2={yPos(4)} stroke={C.red} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
+                    <text x={W - pad.right + 4} y={yPos(4) + 4} fontSize="9" fill={C.red} fontFamily="'JetBrains Mono', monospace">4%</text>
+                    {/* 3% target (green dashed) */}
+                    <line x1={pad.left} x2={W - pad.right} y1={yPos(3)} y2={yPos(3)} stroke={C.green} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
+                    <text x={W - pad.right + 4} y={yPos(3) + 4} fontSize="9" fill={C.green} fontFamily="'JetBrains Mono', monospace">3%</text>
+                    {/* 0% reference */}
+                    <line x1={pad.left} x2={W - pad.right} y1={yPos(0)} y2={yPos(0)} stroke={C.textDim} strokeWidth={0.5} opacity={0.5} />
+                    {/* X axis labels */}
+                    {TREND_PERIODS.map((tp, i) => (
+                      <text key={tp.key} x={xPos(i)} y={H - 10} textAnchor="middle" fontSize="11" fill={C.textDim}>
+                        {tp.label}
+                      </text>
+                    ))}
+                    {/* Single combined line */}
+                    <path
+                      d={trendPoints.map((v, i) => `${i === 0 ? "M" : "L"}${xPos(i)},${yPos(v)}`).join(" ")}
+                      fill="none" stroke={C.accent} strokeWidth={2.5} strokeLinejoin="round"
+                    />
+                    {trendPoints.map((v, i) => (
                       <g key={i}>
-                        <line x1={pad.left} x2={W - pad.right} y1={y} y2={y} stroke={C.border} strokeWidth={0.5} />
-                        <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill={C.textDim} fontFamily="'JetBrains Mono', monospace">
-                          {v.toFixed(0)}%
+                        <circle cx={xPos(i)} cy={yPos(v)} r={5} fill={C.accent} />
+                        <text x={xPos(i)} y={yPos(v) - 10} textAnchor="middle" fontSize="11" fontWeight="700" fill={C.accent} fontFamily="'JetBrains Mono', monospace">
+                          {v > 0 ? "+" : ""}{v.toFixed(1)}%
                         </text>
                       </g>
-                    );
-                  })}
-                  {/* 4% target dashed line */}
-                  <line x1={pad.left} x2={W - pad.right} y1={yPos(4)} y2={yPos(4)} stroke={C.red} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
-                  {/* 0% reference line */}
-                  <line x1={pad.left} x2={W - pad.right} y1={yPos(0)} y2={yPos(0)} stroke={C.textDim} strokeWidth={0.5} opacity={0.5} />
-                  {/* X axis labels */}
-                  {TREND_PERIODS.map((tp, i) => (
-                    <text key={tp.key} x={xPos(i)} y={H - 10} textAnchor="middle" fontSize="11" fill={C.textDim}>
-                      {tp.label}
-                    </text>
-                  ))}
-                  {/* Data lines + dots */}
-                  {trendLines.map((line) => {
-                    const pathD = line.points.map((v, i) => `${i === 0 ? "M" : "L"}${xPos(i)},${yPos(v)}`).join(" ");
-                    return (
-                      <g key={line.name}>
-                        <path d={pathD} fill="none" stroke={line.color} strokeWidth={2.5} strokeLinejoin="round" />
-                        {line.points.map((v, i) => (
-                          <g key={i}>
-                            <circle cx={xPos(i)} cy={yPos(v)} r={4} fill={line.color} />
-                            <text x={xPos(i)} y={yPos(v) - 8} textAnchor="middle" fontSize="10" fontWeight="600" fill={line.color} fontFamily="'JetBrains Mono', monospace">
-                              {v > 0 ? "+" : ""}{v.toFixed(1)}%
-                            </text>
-                          </g>
-                        ))}
-                      </g>
-                    );
-                  })}
-                </svg>
-              </div>
-            );
-          })()}
+                    ))}
+                  </svg>
+                </div>
+              );
+            })()}
+          </div>
 
           {/* Product Table */}
           <div style={{ background: C.card, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
