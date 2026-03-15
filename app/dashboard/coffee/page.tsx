@@ -209,6 +209,34 @@ export default function CoffeePage() {
 
   const maxAbsCups = Math.max(...wasteData.map((d) => Math.abs(d.cups)), 1);
 
+  /* ── Fixed waste trend data (always yd, l7d, ytd — independent of period toggle) ── */
+  const TREND_PERIODS: { key: Period; label: string }[] = [
+    { key: "yd", label: "Yesterday" },
+    { key: "l7d", label: "Last 7 Days" },
+    { key: "ytd", label: "YTD" },
+  ];
+  const LINE_COLORS = ["#6366f1", "#f59e0b", "#06b6d4"]; // indigo, amber, cyan
+  const trendLines = useMemo(() => {
+    const mainCodes = Object.keys(WASTE_PAIRS);
+    return mainCodes.map((mainCode, idx) => {
+      const main = data.find((r) => r.lv_code === mainCode);
+      const oat = data.find((r) => r.lv_code === WASTE_PAIRS[mainCode]);
+      const name = main ? cleanName(main.name) : `Coffee ${idx + 1}`;
+      const points = TREND_PERIODS.map((tp) => {
+        const wK = col(tp.key, "waste_cups");
+        const qK = col(tp.key, "qty");
+        const mainW = main ? num(main[wK]) : 0;
+        const oatW = oat ? num(oat[wK]) : 0;
+        const mainQ = main ? num(main[qK]) : 0;
+        const oatQ = oat ? num(oat[qK]) : 0;
+        const totalQ = mainQ + oatQ;
+        const netCups = mainW + oatW;
+        return totalQ > 0 ? (netCups / totalQ) * 100 : 0;
+      });
+      return { name, points, color: LINE_COLORS[idx] };
+    });
+  }, [data]);
+
   /* ── Table keys ── */
   const salesKey = col(period, "sales");
   const qtyKey = col(period, "qty");
@@ -352,6 +380,78 @@ export default function CoffeePage() {
               })}
             </div>
           </div>
+
+          {/* Waste % Trend Line Chart (fixed — always shows yd, l7d, ytd) */}
+          {(() => {
+            const W = 560, H = 220, pad = { top: 30, right: 20, bottom: 40, left: 50 };
+            const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
+            const allVals = trendLines.flatMap((l) => l.points).concat([4, 0]);
+            const minY = Math.min(...allVals) - 2, maxY = Math.max(...allVals) + 2;
+            const rangeY = maxY - minY || 1;
+            const xPos = (i: number) => pad.left + (i / (TREND_PERIODS.length - 1)) * cW;
+            const yPos = (v: number) => pad.top + ((maxY - v) / rangeY) * cH;
+            return (
+              <div style={{ background: C.card, borderRadius: "10px", padding: "20px", border: `1px solid ${C.border}`, marginBottom: "24px" }}>
+                <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "12px" }}>
+                  Waste % Trend
+                </h3>
+                <div style={{ display: "flex", gap: "16px", marginBottom: "12px" }}>
+                  {trendLines.map((l) => (
+                    <div key={l.name} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: C.text }}>
+                      <div style={{ width: "16px", height: "3px", borderRadius: "2px", background: l.color }} />
+                      {l.name}
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: C.red }}>
+                    <div style={{ width: "16px", height: "0", borderTop: `2px dashed ${C.red}` }} />
+                    4% target
+                  </div>
+                </div>
+                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W, height: "auto" }}>
+                  {/* Y axis grid lines */}
+                  {Array.from({ length: 5 }, (_, i) => {
+                    const v = minY + (rangeY * i) / 4;
+                    const y = yPos(v);
+                    return (
+                      <g key={i}>
+                        <line x1={pad.left} x2={W - pad.right} y1={y} y2={y} stroke={C.border} strokeWidth={0.5} />
+                        <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill={C.textDim} fontFamily="'JetBrains Mono', monospace">
+                          {v.toFixed(0)}%
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {/* 4% target dashed line */}
+                  <line x1={pad.left} x2={W - pad.right} y1={yPos(4)} y2={yPos(4)} stroke={C.red} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.7} />
+                  {/* 0% reference line */}
+                  <line x1={pad.left} x2={W - pad.right} y1={yPos(0)} y2={yPos(0)} stroke={C.textDim} strokeWidth={0.5} opacity={0.5} />
+                  {/* X axis labels */}
+                  {TREND_PERIODS.map((tp, i) => (
+                    <text key={tp.key} x={xPos(i)} y={H - 10} textAnchor="middle" fontSize="11" fill={C.textDim}>
+                      {tp.label}
+                    </text>
+                  ))}
+                  {/* Data lines + dots */}
+                  {trendLines.map((line) => {
+                    const pathD = line.points.map((v, i) => `${i === 0 ? "M" : "L"}${xPos(i)},${yPos(v)}`).join(" ");
+                    return (
+                      <g key={line.name}>
+                        <path d={pathD} fill="none" stroke={line.color} strokeWidth={2.5} strokeLinejoin="round" />
+                        {line.points.map((v, i) => (
+                          <g key={i}>
+                            <circle cx={xPos(i)} cy={yPos(v)} r={4} fill={line.color} />
+                            <text x={xPos(i)} y={yPos(v) - 8} textAnchor="middle" fontSize="10" fontWeight="600" fill={line.color} fontFamily="'JetBrains Mono', monospace">
+                              {v > 0 ? "+" : ""}{v.toFixed(1)}%
+                            </text>
+                          </g>
+                        ))}
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            );
+          })()}
 
           {/* Product Table */}
           <div style={{ background: C.card, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
