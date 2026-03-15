@@ -111,7 +111,7 @@ const pillBtn = (active: boolean): React.CSSProperties => {
 export default function CoffeePage() {
   const [data, setData] = useState<CoffeeRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>("l7d");
+  const [period, setPeriod] = useState<Period>("yd");
 
   useEffect(() => {
     async function load() {
