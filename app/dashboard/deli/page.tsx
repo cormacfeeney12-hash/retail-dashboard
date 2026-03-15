@@ -102,6 +102,7 @@ export default function DeliPage() {
   const [selectedSub, setSelectedSub] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<TabView>("overview");
+  const [expandedProduct, setExpandedProduct] = useState<string | null>(null); // lv_code for section B detail
 
   useEffect(() => {
     async function load() {
@@ -252,30 +253,69 @@ export default function DeliPage() {
 
   const maxDayWaste = Math.max(...wasteByDay.flatMap((d) => [d.ytdAvg, d.lyAvg]), 1);
 
-  /* B) YTD vs LY Waste Comparison by product */
+  /* B) YTD vs LY Waste Comparison by product — enriched with yd/l7d from deli_report */
   const wasteComparison = useMemo(() => {
+    // YTD and LY YTD from correlation data (summed across all days)
     const ytdMap = new Map<string, number>();
     const lyMap = new Map<string, number>();
     const nameMap = new Map<string, string>();
+    const subMap = new Map<string, string>();
     for (const r of corrData) {
       const key = r.lv_code || r.name;
       const wc = num(r.waste_cost);
       if (r.period === "YTD") ytdMap.set(key, (ytdMap.get(key) ?? 0) + wc);
       else lyMap.set(key, (lyMap.get(key) ?? 0) + wc);
       if (!nameMap.has(key)) nameMap.set(key, cleanName(r.name));
+      if (!subMap.has(key)) subMap.set(key, r.subcategory);
     }
-    const rows: { name: string; key: string; ytdCost: number; lyCost: number; change: number; changePct: number }[] = [];
-    const allKeys = new Set([...ytdMap.keys(), ...lyMap.keys()]);
+    // Yesterday and L7D from deli_report
+    const ydMap = new Map<string, number>();
+    const l7dMap = new Map<string, number>();
+    for (const r of data) {
+      const key = r.lv_code || r.name;
+      ydMap.set(key, num(r.yd_waste_cost));
+      l7dMap.set(key, num(r.l7d_waste_cost));
+      if (!nameMap.has(key)) nameMap.set(key, cleanName(r.name));
+      if (!subMap.has(key)) subMap.set(key, r.subcategory);
+    }
+    const rows: { name: string; key: string; sub: string; ydCost: number; l7dCost: number; ytdCost: number; lyCost: number; change: number; changePct: number }[] = [];
+    const allKeys = new Set([...ytdMap.keys(), ...lyMap.keys(), ...ydMap.keys()]);
     for (const key of allKeys) {
       const ytd = ytdMap.get(key) ?? 0;
       const ly = lyMap.get(key) ?? 0;
       const change = ytd - ly;
       const changePct = ly > 0 ? ((ytd - ly) / ly) * 100 : ytd > 0 ? 100 : 0;
-      rows.push({ name: nameMap.get(key) ?? key, key, ytdCost: ytd, lyCost: ly, change, changePct });
+      rows.push({
+        name: nameMap.get(key) ?? key, key,
+        sub: subMap.get(key) ?? "",
+        ydCost: ydMap.get(key) ?? 0,
+        l7dCost: l7dMap.get(key) ?? 0,
+        ytdCost: ytd, lyCost: ly, change, changePct,
+      });
     }
     rows.sort((a, b) => b.change - a.change);
-    return rows.filter((r) => r.ytdCost > 0 || r.lyCost > 0);
-  }, [corrData]);
+    return rows.filter((r) => r.ytdCost > 0 || r.lyCost > 0 || r.ydCost > 0 || r.l7dCost > 0);
+  }, [corrData, data]);
+
+  /* B detail) Day-of-week breakdown for expanded product */
+  const expandedDayData = useMemo(() => {
+    if (!expandedProduct) return [];
+    const productRows = corrData.filter((r) => (r.lv_code || r.name) === expandedProduct);
+    return DAYS_ORDER.map((day) => {
+      const ytdRow = productRows.find((r) => r.day_of_week === day && r.period === "YTD");
+      const lyRow = productRows.find((r) => r.day_of_week === day && r.period === "LY YTD");
+      return {
+        day,
+        dayShort: day.slice(0, 3),
+        ytdWasteQty: num(ytdRow?.waste_qty),
+        ytdWasteCost: num(ytdRow?.waste_cost),
+        lyWasteQty: num(lyRow?.waste_qty),
+        lyWasteCost: num(lyRow?.waste_cost),
+        changeQty: num(ytdRow?.waste_qty) - num(lyRow?.waste_qty),
+        changeCost: num(ytdRow?.waste_cost) - num(lyRow?.waste_cost),
+      };
+    });
+  }, [expandedProduct, corrData]);
 
   /* C) Top Waste Offenders by Day */
   const topByDay = useMemo(() => {
@@ -588,30 +628,148 @@ export default function DeliPage() {
               <div style={{ background: C.card, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden", marginBottom: "24px" }}>
                 <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
                   <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
-                    B) YTD vs LY Waste Cost Comparison
+                    B) Waste Cost Comparison
                   </h3>
                   <p style={{ fontSize: "11px", color: C.textMuted, margin: 0 }}>
-                    Products where waste cost has increased &gt;20% highlighted in red
+                    Click any product row to see day-of-week waste breakdown. Rows with &gt;20% YTD vs LY increase highlighted red.
                   </p>
                 </div>
+
+                {/* Expanded product detail view */}
+                {expandedProduct && (() => {
+                  const prod = wasteComparison.find((r) => r.key === expandedProduct);
+                  const maxBarQty = Math.max(...expandedDayData.flatMap((d) => [d.ytdWasteQty, d.lyWasteQty]), 1);
+                  // Find worst days
+                  const worstYtdDay = expandedDayData.reduce((a, b) => b.ytdWasteCost > a.ytdWasteCost ? b : a, expandedDayData[0]);
+                  const worstLyDay = expandedDayData.reduce((a, b) => b.lyWasteCost > a.lyWasteCost ? b : a, expandedDayData[0]);
+                  return (
+                    <div style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ fontSize: "15px", fontWeight: 700, color: C.text }}>
+                          {prod?.name ?? expandedProduct}
+                          {prod?.sub && <span style={{ fontSize: "11px", color: C.textDim, fontWeight: 400, marginLeft: "10px" }}>{prod.sub}</span>}
+                        </div>
+                        <button
+                          onClick={() => setExpandedProduct(null)}
+                          style={{
+                            background: "#7C3AED", border: "none", borderRadius: "8px",
+                            color: "#fff", cursor: "pointer", padding: "8px 16px",
+                            fontSize: "13px", fontWeight: 600,
+                          }}
+                        >
+                          &#10005; Close
+                        </button>
+                      </div>
+                      <div style={{ padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 280px", gap: "20px" }}>
+                        {/* Day-of-week table */}
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                            <thead>
+                              <tr>
+                                {["Day", "YTD Waste Qty", "YTD Waste €", "LY Waste Qty", "LY Waste €", "Change €"].map((h, hi) => (
+                                  <th key={h} style={{ ...thStyle, textAlign: hi === 0 ? "left" : "right", borderBottomColor: "#f59e0b" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {expandedDayData.map((d, i) => {
+                                const isWorstYtd = d.day === worstYtdDay.day;
+                                const isWorstLy = d.day === worstLyDay.day;
+                                return (
+                                  <tr key={d.day} style={{ background: i % 2 === 0 ? C.bg : C.card }}>
+                                    <td style={{ padding: "8px 12px", color: C.text, fontWeight: 600, fontSize: "12px" }}>{d.day}</td>
+                                    <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: isWorstYtd ? 700 : 400, color: isWorstYtd ? C.red : C.text }}>
+                                      {d.ytdWasteQty.toFixed(1)}
+                                    </td>
+                                    <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: isWorstYtd ? 700 : 400, color: isWorstYtd ? C.red : C.text }}>
+                                      {fmt(d.ytdWasteCost)}
+                                    </td>
+                                    <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: isWorstLy ? 700 : 400, color: isWorstLy ? C.red : C.textDim }}>
+                                      {d.lyWasteQty.toFixed(1)}
+                                    </td>
+                                    <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: isWorstLy ? 700 : 400, color: isWorstLy ? C.red : C.textDim }}>
+                                      {fmt(d.lyWasteCost)}
+                                    </td>
+                                    <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: d.changeCost > 0 ? C.red : C.green }}>
+                                      {d.changeCost > 0 ? "+" : ""}{fmt(d.changeCost)}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        {/* Mini bar chart */}
+                        <div style={{ background: C.bg, borderRadius: "8px", padding: "12px", border: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: "10px", fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>
+                            Waste Qty by Day
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "3px", fontSize: "9px", color: C.accent }}>
+                              <div style={{ width: "8px", height: "8px", borderRadius: "2px", background: C.accent }} /> YTD
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "3px", fontSize: "9px", color: C.textDim }}>
+                              <div style={{ width: "8px", height: "8px", borderRadius: "2px", background: `${C.textDim}66` }} /> LY
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "4px", alignItems: "flex-end", height: "140px" }}>
+                            {expandedDayData.map((d, i) => {
+                              const ytdH = maxBarQty > 0 ? (d.ytdWasteQty / maxBarQty) * 120 : 0;
+                              const lyH = maxBarQty > 0 ? (d.lyWasteQty / maxBarQty) * 120 : 0;
+                              return (
+                                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+                                  <div style={{ display: "flex", gap: "2px", alignItems: "flex-end", height: "120px" }}>
+                                    <div style={{ width: "12px", height: `${lyH}px`, background: `${C.textDim}66`, borderRadius: "2px 2px 0 0" }} />
+                                    <div style={{ width: "12px", height: `${ytdH}px`, background: C.accent, borderRadius: "2px 2px 0 0" }} />
+                                  </div>
+                                  <div style={{ fontSize: "8px", color: C.textDim, fontWeight: 600 }}>{d.dayShort}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Main comparison table */}
                 <div style={{ overflowX: "auto", maxHeight: "500px", overflowY: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
                     <thead>
                       <tr>
-                        {["#", "Product", "YTD Waste €", "LY YTD Waste €", "Change €", "Change %"].map((h, hi) => (
-                          <th key={h} style={{ ...thStyle, textAlign: hi < 2 ? "left" : "right" }}>{h}</th>
+                        {["#", "Product", "Subcategory", "Yday €", "L7D €", "YTD €", "LY YTD €", "Change €", "Change %"].map((h, hi) => (
+                          <th key={h} style={{ ...thStyle, textAlign: hi < 3 ? "left" : "right" }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {wasteComparison.slice(0, 50).map((r, i) => {
                         const bad = r.changePct > 20;
+                        const isExpanded = expandedProduct === r.key;
                         return (
-                          <tr key={r.key + i} style={{ background: bad ? "rgba(220, 53, 69, 0.06)" : i % 2 === 0 ? C.bg : C.card }}>
+                          <tr
+                            key={r.key + i}
+                            onClick={() => setExpandedProduct(isExpanded ? null : r.key)}
+                            style={{
+                              background: isExpanded ? `${C.accent}15` : bad ? "rgba(220, 53, 69, 0.06)" : i % 2 === 0 ? C.bg : C.card,
+                              cursor: "pointer", transition: "background 0.1s",
+                            }}
+                            onMouseEnter={(e) => { if (!isExpanded) (e.currentTarget as HTMLTableRowElement).style.background = C.borderLight; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isExpanded ? `${C.accent}15` : bad ? "rgba(220, 53, 69, 0.06)" : i % 2 === 0 ? C.bg : C.card; }}
+                          >
                             <td style={{ padding: "8px 12px", color: C.textDim, fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>{i + 1}</td>
-                            <td style={{ padding: "8px 12px", color: C.text, fontWeight: 500, maxWidth: "250px" }}>
-                              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                            <td style={{ padding: "8px 12px", color: C.text, fontWeight: 500, maxWidth: "220px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                <span style={{ fontSize: "10px", color: C.accent }}>{isExpanded ? "▼" : "▶"}</span>
+                                <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                              </div>
                             </td>
+                            <td style={{ padding: "8px 12px", color: C.textDim, fontSize: "11px", maxWidth: "160px" }}>
+                              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sub}</div>
+                            </td>
+                            <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: r.ydCost > 0 ? C.text : C.textDim }}>{fmt(r.ydCost)}</td>
+                            <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: r.l7dCost > 0 ? C.text : C.textDim }}>{fmt(r.l7dCost)}</td>
                             <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: r.ytdCost > 0 ? C.red : C.text }}>{fmt(r.ytdCost)}</td>
                             <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: C.textDim }}>{fmt(r.lyCost)}</td>
                             <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: r.change > 0 ? C.red : C.green }}>
