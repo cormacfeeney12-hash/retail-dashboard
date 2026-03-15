@@ -60,6 +60,8 @@ const WASTE_PAIRS: Record<string, string> = {
 
 const OAT_LV_CODES = new Set(Object.values(WASTE_PAIRS));
 const MAIN_COFFEE_LV_CODES = new Set(Object.keys(WASTE_PAIRS));
+const ALL_COFFEE_LV_CODES = new Set([...Object.keys(WASTE_PAIRS), ...Object.values(WASTE_PAIRS)]);
+const TEA_LV_CODES = new Set(["1499522 000", "1499559 000"]);
 const NON_COFFEE_LV_CODES = new Set(["1499522 000", "1499559 000", "1640042 000"]);
 
 const isOatProduct = (row: CoffeeRow): boolean => OAT_LV_CODES.has(row.lv_code);
@@ -130,12 +132,14 @@ export default function CoffeePage() {
   /* ── Separate main products vs oat/other ── */
   const mainProducts = useMemo(() => data.filter((r) => !isOatProduct(r)), [data]);
 
-  /* ── Sorted data: oat products appear right after their paired main product ── */
+  /* ── Sorted data: by Margin € desc, oat products after their paired main ── */
   const sortedData = useMemo(() => {
+    const marginKey = col(period, "margin");
+    const sorted = [...mainProducts].sort((a, b) => num(b[marginKey]) - num(a[marginKey]));
     const result: CoffeeRow[] = [];
     const oatRows = data.filter((r) => isOatProduct(r));
     const used = new Set<string>();
-    for (const r of mainProducts) {
+    for (const r of sorted) {
       result.push(r);
       const oatPair = findOatPair(r, data);
       if (oatPair) { result.push(oatPair); used.add(oatPair.lv_code); }
@@ -144,33 +148,32 @@ export default function CoffeePage() {
       if (!used.has(o.lv_code)) result.push(o);
     }
     return result;
-  }, [mainProducts, data]);
-
-  /* ── KPIs ── */
-  const kpis = useMemo(() => {
-    const salesKey = col(period, "sales");
-    const qtyKey = col(period, "qty");
-    const marginKey = col(period, "margin");
-    const wasteCupsKey = col(period, "waste_cups");
-
-    let totalSales = 0, totalQty = 0, totalMargin = 0, totalNetWaste = 0;
-
-    for (const r of mainProducts) {
-      totalSales += num(r[salesKey]);
-      totalQty += num(r[qtyKey]);
-      totalMargin += num(r[marginKey]);
-      // Net waste: keep sign (negative = recovery/good)
-      const ownWaste = num(r[wasteCupsKey]);
-      const oatRow = findOatPair(r, data);
-      const oatWaste = oatRow ? num(oatRow[wasteCupsKey]) : 0;
-      totalNetWaste += ownWaste + oatWaste;
-    }
-
-    const avgMarginPct = totalSales > 0 ? (totalMargin / totalSales) * 100 : 0;
-    const wastePct = totalQty > 0 ? (totalNetWaste / totalQty) * 100 : 0;
-
-    return { totalSales, totalQty, totalMargin, avgMarginPct, wastePct, totalNetWaste };
   }, [mainProducts, data, period]);
+
+  /* ── Coffee KPIs (6 coffee LV codes) ── */
+  const coffeeKpis = useMemo(() => {
+    const sK = col(period, "sales"), qK = col(period, "qty"), mK = col(period, "margin"), wK = col(period, "waste_cups");
+    let sales = 0, qty = 0, margin = 0, netWaste = 0;
+    // Sum across all 6 coffee products
+    for (const r of data.filter((r) => ALL_COFFEE_LV_CODES.has(r.lv_code))) {
+      sales += num(r[sK]); qty += num(r[qK]); margin += num(r[mK]);
+      netWaste += num(r[wK]);
+    }
+    const marginPct = sales > 0 ? (margin / sales) * 100 : 0;
+    const wastePct = qty > 0 ? (netWaste / qty) * 100 : 0;
+    return { sales, qty, margin, marginPct, netWaste, wastePct };
+  }, [data, period]);
+
+  /* ── Tea KPIs (1499522, 1499559) ── */
+  const teaKpis = useMemo(() => {
+    const sK = col(period, "sales"), qK = col(period, "qty"), mK = col(period, "margin");
+    let sales = 0, qty = 0, margin = 0;
+    for (const r of data.filter((r) => TEA_LV_CODES.has(r.lv_code))) {
+      sales += num(r[sK]); qty += num(r[qK]); margin += num(r[mK]);
+    }
+    const marginPct = sales > 0 ? (margin / sales) * 100 : 0;
+    return { sales, qty, margin, marginPct };
+  }, [data, period]);
 
   /* ── Waste chart data (only 3 main coffee types with net waste) ── */
   const wasteData = useMemo(() => {
@@ -187,7 +190,6 @@ export default function CoffeePage() {
         const netPct = qty > 0 ? (netCups / qty) * 100 : 0;
         return { name: cleanName(r.name), cups: netCups, pct: netPct };
       })
-      .filter((d) => d.cups !== 0)
       .sort((a, b) => b.cups - a.cups);
   }, [data, period]);
 
@@ -226,29 +228,64 @@ export default function CoffeePage() {
         </div>
       ) : (
         <>
-          {/* KPI Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "24px" }}>
-            {[
-              { label: "Total Sales", value: fmt(kpis.totalSales), accent: C.accent, color: C.text },
-              { label: "Total Cups Sold", value: kpis.totalQty.toLocaleString("en-IE"), accent: "#06b6d4", color: C.text },
-              { label: "Average Margin %", value: `${kpis.avgMarginPct.toFixed(1)}%`, accent: marginColor(kpis.avgMarginPct), color: marginColor(kpis.avgMarginPct) },
-              { label: "Net Waste %", value: `${kpis.wastePct > 0 ? "+" : ""}${kpis.wastePct.toFixed(1)}%`, accent: wasteColor(kpis.wastePct), color: wasteColor(kpis.wastePct) },
-            ].map((kpi) => (
-              <div
-                key={kpi.label}
-                style={{
-                  background: C.card, borderRadius: "10px", padding: "20px",
-                  borderLeft: `3px solid ${kpi.accent}`,
-                }}
-              >
-                <div style={{ fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "8px" }}>
-                  {kpi.label}
-                </div>
-                <div style={{ fontSize: "24px", fontWeight: 600, color: kpi.color, fontFamily: "'JetBrains Mono', monospace" }}>
-                  {kpi.value}
-                </div>
+          {/* KPI Boxes: Coffee | Tea | Overall Waste */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: "16px", marginBottom: "24px" }}>
+            {/* ── Coffee KPI Box ── */}
+            <div style={{ background: C.card, borderRadius: "10px", padding: "16px 20px", border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "14px", borderBottom: `2px solid ${C.accent}`, paddingBottom: "8px" }}>
+                Coffee
               </div>
-            ))}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                {[
+                  { label: "Total Sales", value: fmt(coffeeKpis.sales), color: C.text },
+                  { label: "Cups Sold", value: coffeeKpis.qty.toLocaleString("en-IE"), color: C.text },
+                  { label: "Avg Margin %", value: `${coffeeKpis.marginPct.toFixed(1)}%`, color: marginColor(coffeeKpis.marginPct) },
+                  { label: "Net Waste Cups", value: `${coffeeKpis.netWaste > 0 ? "+" : ""}${coffeeKpis.netWaste}`, color: wasteColor(coffeeKpis.wastePct) },
+                  { label: "Waste % vs 4%", value: `${coffeeKpis.wastePct > 0 ? "+" : ""}${coffeeKpis.wastePct.toFixed(1)}%`, color: wasteColor(coffeeKpis.wastePct) },
+                ].map((k) => (
+                  <div key={k.label}>
+                    <div style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "4px" }}>{k.label}</div>
+                    <div style={{ fontSize: "18px", fontWeight: 600, color: k.color, fontFamily: "'JetBrains Mono', monospace" }}>{k.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Tea KPI Box ── */}
+            <div style={{ background: C.card, borderRadius: "10px", padding: "16px 20px", border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "#06b6d4", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "14px", borderBottom: "2px solid #06b6d4", paddingBottom: "8px" }}>
+                Tea
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                {[
+                  { label: "Total Sales", value: fmt(teaKpis.sales), color: C.text },
+                  { label: "Cups Sold", value: teaKpis.qty.toLocaleString("en-IE"), color: C.text },
+                  { label: "Avg Margin %", value: `${teaKpis.marginPct.toFixed(1)}%`, color: marginColor(teaKpis.marginPct) },
+                  { label: "Waste", value: "N/A", color: C.textDim },
+                ].map((k) => (
+                  <div key={k.label}>
+                    <div style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "4px" }}>{k.label}</div>
+                    <div style={{ fontSize: "18px", fontWeight: 600, color: k.color, fontFamily: "'JetBrains Mono', monospace" }}>{k.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: "10px", color: C.textMuted, marginTop: "8px", fontStyle: "italic" }}>
+                Tea waste cannot be accurately calculated
+              </div>
+            </div>
+
+            {/* ── Overall Waste % standalone ── */}
+            <div style={{ background: C.card, borderRadius: "10px", padding: "16px 20px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minWidth: "140px" }}>
+              <div style={{ fontSize: "9px", fontWeight: 600, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase", marginBottom: "6px", textAlign: "center" }}>
+                Overall Coffee<br />Waste % vs 4%
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 700, color: wasteColor(coffeeKpis.wastePct), fontFamily: "'JetBrains Mono', monospace" }}>
+                {coffeeKpis.wastePct > 0 ? "+" : ""}{coffeeKpis.wastePct.toFixed(1)}%
+              </div>
+              <div style={{ fontSize: "10px", color: C.textMuted, marginTop: "4px" }}>
+                {coffeeKpis.wastePct < 0 ? "Under target" : coffeeKpis.wastePct <= 4 ? "At target" : "Over target"}
+              </div>
+            </div>
           </div>
 
           {/* Net Waste Chart */}
