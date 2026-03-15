@@ -45,6 +45,27 @@ const normMarginPct = (v: unknown): number => {
 const cleanName = (name: string): string =>
   name.replace(/^\d+\s*-\s*/, "").replace(/\|.*$/, "").trim();
 
+/** Waste pairing by LV code: main coffee → oat milk equivalent */
+const WASTE_PAIRS: Record<string, string> = {
+  "1499519 000": "1890874 000", // Large Coffee → OAT Coffee Large
+  "1499543 000": "1890914 000", // Reg Coffee → OAT Coffee Regular
+  "1499588 000": "1890847 000", // Flat White → OAT Flat White
+};
+
+const OAT_LV_CODES = new Set(Object.values(WASTE_PAIRS));
+const MAIN_COFFEE_LV_CODES = new Set(Object.keys(WASTE_PAIRS));
+const NON_COFFEE_LV_CODES = new Set(["1499522 000", "1499559 000", "1640042 000"]);
+
+const isOatProduct = (row: CoffeeRow): boolean => OAT_LV_CODES.has(row.lv_code);
+const isMainCoffee = (row: CoffeeRow): boolean => MAIN_COFFEE_LV_CODES.has(row.lv_code);
+const isNonCoffee = (row: CoffeeRow): boolean => NON_COFFEE_LV_CODES.has(row.lv_code);
+
+const findOatPair = (mainRow: CoffeeRow, rows: CoffeeRow[]): CoffeeRow | undefined => {
+  const oatCode = WASTE_PAIRS[mainRow.lv_code];
+  if (!oatCode) return undefined;
+  return rows.find((r) => r.lv_code === oatCode);
+};
+
 const marginColor = (pct: number) => {
   if (pct >= 30) return C.green;
   if (pct >= 20) return C.amber;
@@ -99,6 +120,25 @@ export default function CoffeePage() {
     load();
   }, []);
 
+  /* ── Separate main products vs oat/other ── */
+  const mainProducts = useMemo(() => data.filter((r) => !isOatProduct(r)), [data]);
+
+  /* ── Sorted data: oat products appear right after their paired main product ── */
+  const sortedData = useMemo(() => {
+    const result: CoffeeRow[] = [];
+    const oatRows = data.filter((r) => isOatProduct(r));
+    const used = new Set<string>();
+    for (const r of mainProducts) {
+      result.push(r);
+      const oatPair = findOatPair(r, data);
+      if (oatPair) { result.push(oatPair); used.add(oatPair.lv_code); }
+    }
+    for (const o of oatRows) {
+      if (!used.has(o.lv_code)) result.push(o);
+    }
+    return result;
+  }, [mainProducts, data]);
+
   /* ── KPIs ── */
   const kpis = useMemo(() => {
     const salesKey = col(period, "sales");
@@ -108,31 +148,39 @@ export default function CoffeePage() {
 
     let totalSales = 0, totalQty = 0, totalMargin = 0, totalWasteCups = 0;
 
-    for (const r of data) {
+    for (const r of mainProducts) {
       totalSales += num(r[salesKey]);
       totalQty += num(r[qtyKey]);
       totalMargin += num(r[marginKey]);
-      totalWasteCups += Math.abs(num(r[wasteCupsKey]));
+      // Combined waste: own cups + paired oat cups
+      const ownWaste = Math.abs(num(r[wasteCupsKey]));
+      const oatRow = findOatPair(r, data);
+      const oatWaste = oatRow ? Math.abs(num(oatRow[wasteCupsKey])) : 0;
+      totalWasteCups += ownWaste + oatWaste;
     }
 
-    // Weighted average margin %: sum(margin) / sum(sales) * 100
     const avgMarginPct = totalSales > 0 ? (totalMargin / totalSales) * 100 : 0;
-    // Waste %: sum(abs(waste_cups)) / sum(qty) * 100
     const wastePct = totalQty > 0 ? (totalWasteCups / totalQty) * 100 : 0;
 
     return { totalSales, totalQty, totalMargin, avgMarginPct, wastePct };
-  }, [data, period]);
+  }, [mainProducts, data, period]);
 
-  /* ── Waste chart data ── */
+  /* ── Waste chart data (only 3 main coffee types with combined waste) ── */
   const wasteData = useMemo(() => {
     const wasteCupsKey = col(period, "waste_cups");
-    const wastePctKey = col(period, "waste_pct");
-    return data
-      .map((r) => ({
-        name: cleanName(r.name),
-        cups: Math.abs(num(r[wasteCupsKey])),
-        pct: Math.abs(num(r[wastePctKey])) * 100,
-      }))
+    const qtyKey = col(period, "qty");
+    // Only the 3 main coffee products that have an oat pair
+    const coffeeRows = data.filter((r) => isMainCoffee(r));
+    return coffeeRows
+      .map((r) => {
+        const ownCups = Math.abs(num(r[wasteCupsKey]));
+        const oatRow = findOatPair(r, data);
+        const oatCups = oatRow ? Math.abs(num(oatRow[wasteCupsKey])) : 0;
+        const combinedCups = ownCups + oatCups;
+        const qty = num(r[qtyKey]) + (oatRow ? num(oatRow[qtyKey]) : 0);
+        const combinedPct = qty > 0 ? (combinedCups / qty) * 100 : 0;
+        return { name: cleanName(r.name), cups: combinedCups, pct: combinedPct };
+      })
       .filter((d) => d.cups > 0)
       .sort((a, b) => b.cups - a.cups);
   }, [data, period]);
@@ -278,23 +326,61 @@ export default function CoffeePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.length === 0 ? (
+                  {sortedData.length === 0 ? (
                     <tr>
                       <td colSpan={7} style={{ textAlign: "center", padding: "40px", color: C.textDim }}>
                         No F&amp;H Coffee data found
                       </td>
                     </tr>
                   ) : (
-                    data.map((row, i) => {
+                    sortedData.map((row, i) => {
                       const mPct = normMarginPct(row[marginPctKey]);
-                      const wPctRaw = num(row[wastePctKey]);
-                      const wPct = Math.abs(wPctRaw) * 100;
-                      const wCups = Math.abs(num(row[wasteCupsKey]));
+                      const oat = isOatProduct(row);
+                      const nonCoffee = isNonCoffee(row);
+                      const oatRow = findOatPair(row, data);
+
+                      // Combined waste for main coffee products
+                      const ownCups = Math.abs(num(row[wasteCupsKey]));
+                      const pairedOatCups = oatRow ? Math.abs(num(oatRow[wasteCupsKey])) : 0;
+                      const combinedCups = ownCups + pairedOatCups;
+                      const combinedQty = num(row[qtyKey]) + (oatRow ? num(oatRow[qtyKey]) : 0);
+                      const combinedPct = combinedQty > 0 ? (combinedCups / combinedQty) * 100 : 0;
+
+                      // Waste display logic
+                      let wasteDisplay: React.ReactNode;
+                      let wasteCupsDisplay: React.ReactNode;
+                      if (oat) {
+                        // Oat rows: show "—" (waste shown on main product row)
+                        wasteDisplay = <span style={{ color: C.textDim }}>—</span>;
+                        wasteCupsDisplay = <span style={{ color: C.textDim }}>—</span>;
+                      } else if (nonCoffee) {
+                        // Tea, reusable cup, etc: show "N/A"
+                        wasteDisplay = <span style={{ color: C.textDim }}>N/A</span>;
+                        wasteCupsDisplay = <span style={{ color: C.textDim }}>N/A</span>;
+                      } else if (oatRow) {
+                        // Main coffee with oat pair: show combined waste
+                        wasteDisplay = (
+                          <span style={{ fontWeight: 600, color: wasteColor(combinedPct) }}>
+                            {combinedPct.toFixed(1)}%
+                          </span>
+                        );
+                        wasteCupsDisplay = combinedCups > 0 ? combinedCups : "—";
+                      } else {
+                        // Fallback (shouldn't happen)
+                        const wPct = Math.abs(num(row[wastePctKey])) * 100;
+                        wasteDisplay = (
+                          <span style={{ fontWeight: 600, color: wasteColor(wPct) }}>
+                            {row[wastePctKey] != null ? `${wPct.toFixed(1)}%` : "—"}
+                          </span>
+                        );
+                        wasteCupsDisplay = ownCups > 0 ? ownCups : "—";
+                      }
+
                       return (
-                        <tr key={row.lv_code + i} style={{ background: rowBg(mPct) }}>
+                        <tr key={row.lv_code + i} style={{ background: oat ? "transparent" : rowBg(mPct), opacity: oat ? 0.5 : 1 }}>
                           <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500, maxWidth: "280px" }}>
-                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {cleanName(row.name)}
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: oat ? "16px" : 0 }}>
+                              {oat ? "↳ " : ""}{cleanName(row.name)}
                             </div>
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "right", color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
@@ -309,11 +395,11 @@ export default function CoffeePage() {
                           <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: marginColor(mPct) }}>
                             {mPct.toFixed(1)}%
                           </td>
-                          <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: wasteColor(wPct) }}>
-                            {row[wastePctKey] != null ? `${wPct.toFixed(1)}%` : "—"}
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace" }}>
+                            {wasteDisplay}
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
-                            {wCups > 0 ? wCups : "—"}
+                            {wasteCupsDisplay}
                           </td>
                         </tr>
                       );
