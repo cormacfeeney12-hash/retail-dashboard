@@ -45,7 +45,12 @@ const normMarginPct = (v: unknown): number => {
 const cleanName = (name: string): string =>
   name.replace(/^\d+\s*-\s*/, "").replace(/\|.*$/, "").trim();
 
-/** Waste pairing by LV code: main coffee → oat milk equivalent */
+/**
+ * Waste pairing by LV code: main coffee → oat milk equivalent.
+ * Combined waste = abs(main_waste_cups) + abs(oat_waste_cups)
+ * Combined qty = main_qty + oat_qty
+ * Combined waste % = combined_waste_cups / combined_qty * 100
+ */
 const WASTE_PAIRS: Record<string, string> = {
   "1499519 000": "1890874 000", // Large Coffee → OAT Coffee Large
   "1499543 000": "1890914 000", // Reg Coffee → OAT Coffee Regular
