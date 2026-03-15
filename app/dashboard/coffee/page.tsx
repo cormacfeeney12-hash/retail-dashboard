@@ -34,6 +34,17 @@ const num = (v: unknown): number => {
 
 const col = (period: Period, metric: string) => `${period}_${metric}` as keyof CoffeeRow;
 
+/** Normalise margin_pct: stored as decimal 0.48 = 48%. Returns display % */
+const normMarginPct = (v: unknown): number => {
+  const n = num(v);
+  // Stored as decimal (e.g. 0.48), multiply by 100 for display
+  return Math.abs(n) <= 1 ? n * 100 : n;
+};
+
+/** Clean product name: strip leading article number and trailing pipe content */
+const cleanName = (name: string): string =>
+  name.replace(/^\d+\s*-\s*/, "").replace(/\|.*$/, "").trim();
+
 const marginColor = (pct: number) => {
   if (pct >= 30) return C.green;
   if (pct >= 20) return C.amber;
@@ -41,9 +52,8 @@ const marginColor = (pct: number) => {
 };
 
 const wasteColor = (pct: number) => {
-  const abs = Math.abs(pct * 100);
-  if (abs <= 10) return C.green;
-  if (abs <= 15) return C.amber;
+  if (pct <= 10) return C.green;
+  if (pct <= 15) return C.amber;
   return C.red;
 };
 
@@ -79,7 +89,11 @@ export default function CoffeePage() {
         "SELECT * FROM fh_coffee WHERE store_number = '2064' ORDER BY name"
       );
       if (error) console.error("F&H Coffee load error:", error);
-      setData(rows || []);
+      // Filter out header rows (name starting with "Article")
+      const filtered = (rows || []).filter(
+        (r) => r.name && !r.name.toLowerCase().startsWith("article")
+      );
+      setData(filtered);
       setLoading(false);
     }
     load();
@@ -90,26 +104,23 @@ export default function CoffeePage() {
     const salesKey = col(period, "sales");
     const qtyKey = col(period, "qty");
     const marginKey = col(period, "margin");
-    const wastePctKey = col(period, "waste_pct");
+    const wasteCupsKey = col(period, "waste_cups");
 
-    let totalSales = 0, totalQty = 0, totalMargin = 0;
-    let wasteSum = 0, wasteCount = 0;
+    let totalSales = 0, totalQty = 0, totalMargin = 0, totalWasteCups = 0;
 
     for (const r of data) {
       totalSales += num(r[salesKey]);
       totalQty += num(r[qtyKey]);
       totalMargin += num(r[marginKey]);
-      const wp = r[wastePctKey];
-      if (wp != null) {
-        wasteSum += Math.abs(num(wp));
-        wasteCount++;
-      }
+      totalWasteCups += Math.abs(num(r[wasteCupsKey]));
     }
 
+    // Weighted average margin %: sum(margin) / sum(sales) * 100
     const avgMarginPct = totalSales > 0 ? (totalMargin / totalSales) * 100 : 0;
-    const avgWastePct = wasteCount > 0 ? (wasteSum / wasteCount) * 100 : 0;
+    // Waste %: sum(abs(waste_cups)) / sum(qty) * 100
+    const wastePct = totalQty > 0 ? (totalWasteCups / totalQty) * 100 : 0;
 
-    return { totalSales, totalQty, totalMargin, avgMarginPct, avgWastePct };
+    return { totalSales, totalQty, totalMargin, avgMarginPct, wastePct };
   }, [data, period]);
 
   /* ── Waste chart data ── */
@@ -118,7 +129,7 @@ export default function CoffeePage() {
     const wastePctKey = col(period, "waste_pct");
     return data
       .map((r) => ({
-        name: r.name.replace(/\|.*$/, "").trim(),
+        name: cleanName(r.name),
         cups: Math.abs(num(r[wasteCupsKey])),
         pct: Math.abs(num(r[wastePctKey])) * 100,
       }))
@@ -128,7 +139,7 @@ export default function CoffeePage() {
 
   const maxCups = Math.max(...wasteData.map((d) => d.cups), 1);
 
-  /* ── Table data ── */
+  /* ── Table keys ── */
   const salesKey = col(period, "sales");
   const qtyKey = col(period, "qty");
   const marginKey = col(period, "margin");
@@ -167,7 +178,7 @@ export default function CoffeePage() {
               { label: "Total Sales", value: fmt(kpis.totalSales), accent: C.accent, color: C.text },
               { label: "Total Cups Sold", value: kpis.totalQty.toLocaleString("en-IE"), accent: "#06b6d4", color: C.text },
               { label: "Average Margin %", value: `${kpis.avgMarginPct.toFixed(1)}%`, accent: marginColor(kpis.avgMarginPct), color: marginColor(kpis.avgMarginPct) },
-              { label: "Waste % vs 10% Target", value: `${kpis.avgWastePct.toFixed(1)}%`, accent: wasteColor(kpis.avgWastePct / 100), color: wasteColor(kpis.avgWastePct / 100) },
+              { label: "Waste % vs 10% Target", value: `${kpis.wastePct.toFixed(1)}%`, accent: wasteColor(kpis.wastePct), color: wasteColor(kpis.wastePct) },
             ].map((kpi) => (
               <div
                 key={kpi.label}
@@ -210,7 +221,7 @@ export default function CoffeePage() {
                     <div
                       style={{
                         position: "absolute",
-                        left: `${(maxCups * 0.1 / maxCups) * 100}%`,
+                        left: "10%",
                         top: 0, bottom: 0, width: "2px",
                         background: C.red,
                         borderRight: `1px dashed ${C.red}`,
@@ -221,7 +232,7 @@ export default function CoffeePage() {
                   <div style={{ fontSize: "12px", fontFamily: "'JetBrains Mono', monospace", color: C.text, width: "50px", textAlign: "right", flexShrink: 0 }}>
                     {d.cups}
                   </div>
-                  <div style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", color: wasteColor(d.pct / 100), width: "55px", textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace", color: wasteColor(d.pct), width: "55px", textAlign: "right", flexShrink: 0 }}>
                     {d.pct.toFixed(1)}%
                   </div>
                 </div>
@@ -273,14 +284,15 @@ export default function CoffeePage() {
                     </tr>
                   ) : (
                     data.map((row, i) => {
-                      const mPct = num(row[marginPctKey]) * 100;
-                      const wPct = Math.abs(num(row[wastePctKey])) * 100;
+                      const mPct = normMarginPct(row[marginPctKey]);
+                      const wPctRaw = num(row[wastePctKey]);
+                      const wPct = Math.abs(wPctRaw) * 100;
                       const wCups = Math.abs(num(row[wasteCupsKey]));
                       return (
                         <tr key={row.lv_code + i} style={{ background: rowBg(mPct) }}>
                           <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500, maxWidth: "280px" }}>
                             <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {row.name}
+                              {cleanName(row.name)}
                             </div>
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "right", color: C.text, fontFamily: "'JetBrains Mono', monospace" }}>
@@ -295,7 +307,7 @@ export default function CoffeePage() {
                           <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: marginColor(mPct) }}>
                             {mPct.toFixed(1)}%
                           </td>
-                          <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: wasteColor(wPct / 100) }}>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: wasteColor(wPct) }}>
                             {row[wastePctKey] != null ? `${wPct.toFixed(1)}%` : "—"}
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", color: C.text }}>
